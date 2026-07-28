@@ -1,0 +1,12 @@
+name: sync
+on:
+  schedule:
+    - cron: '0 14 * * 1'
+  workflow_dispatch: {}
+jobs:
+  sync:
+    uses: tyleryancey/light-workspace/.github/workflows/reusable-sync.yml@main
+    permissions:
+      contents: write
+      pull-requests: write
+    secrets: inherit
