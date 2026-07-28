@@ -18,7 +18,7 @@ Donor (read-only, `com.tyleryancey.lightwiki.domain`) → target (`dev.tyler.wik
 **Count: 0.** Every `assertEquals` call in both donor test files is the 2-arg
 `(expected, actual)` form — there are no 3-arg message-first JUnit4 assertions
 anywhere in the donor tests. Each call was checked individually
-(SnippetTextTest: 18 assertEquals calls across 12 tests; ErrorMessagesTest:
+(SnippetTextTest: 17 assertEquals call sites across 12 tests [M1-review correction: an earlier draft said 18, counting the import line]; ErrorMessagesTest:
 4 assertEquals calls across 4 tests). 2-arg `(expected, actual)` order is
 identical between JUnit4 and kotlin.test, so all calls carried over verbatim;
 only the imports changed:
