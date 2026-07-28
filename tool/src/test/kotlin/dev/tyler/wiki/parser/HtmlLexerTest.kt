@@ -107,6 +107,26 @@ class HtmlLexerTest {
     }
 
     @Test
+    fun `ampersand flood without semicolons lexes in linear time`() {
+        // M2-review finding 1: unbounded indexOf(';') made this O(n²) (~6.5s at 640k).
+        val input = "&".repeat(640_000)
+        val start = System.nanoTime()
+        val tokens = HtmlLexer.lex(input)
+        val ms = (System.nanoTime() - start) / 1_000_000
+        assertEquals(listOf(Text(input)), tokens)
+        kotlin.test.assertTrue(ms < 2_000, "ampersand flood took ${ms}ms — quadratic entity scan regressed")
+    }
+
+    @Test
+    fun `spaced equals still binds value to attribute`() {
+        // M2-review finding 3: `href = "x"` must not produce a junk attribute.
+        assertEquals(
+            listOf(StartTag("a", mapOf("href" to "x"))),
+            HtmlLexer.lex("""<a href = "x">"""),
+        )
+    }
+
+    @Test
     fun `attributes parse quoted, single-quoted, unquoted, and valueless forms`() {
         assertEquals(
             listOf(

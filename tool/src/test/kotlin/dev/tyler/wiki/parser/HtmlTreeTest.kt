@@ -132,4 +132,25 @@ class HtmlTreeTest {
             .children.first() as Element
         assertEquals(setOf("infobox", "biography", "vcard"), el.classes)
     }
+
+    @Test
+    fun `classes helper splits on any whitespace`() {
+        // M2-review finding 4: HTML class lists separate on any ASCII whitespace.
+        val el = HtmlTree.parse("<div class=\"a\tb\nc\">x</div>")
+            .children.first() as Element
+        assertEquals(setOf("a", "b", "c"), el.classes)
+    }
+
+    @Test
+    fun `unmatched end tag flood builds in linear time`() {
+        // M2-review finding 2: full-stack indexOfLast made this O(n²) (~13.5s at 80k).
+        val n = 80_000
+        val input = "<a>".repeat(n) + "</b>".repeat(n)
+        val start = System.nanoTime()
+        val root = HtmlTree.parse(input)
+        val ms = (System.nanoTime() - start) / 1_000_000
+        kotlin.test.assertTrue(ms < 2_000, "end-tag flood took ${ms}ms — quadratic stack scan regressed")
+        // The <a> chain still builds (one nested chain under root).
+        assertEquals(1, root.children.size)
+    }
 }

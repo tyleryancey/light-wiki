@@ -33,9 +33,13 @@ object HtmlTree {
     fun build(tokens: List<HtmlToken>): HtmlNode.Element {
         val stack = ArrayList<OpenElement>()
         stack.add(OpenElement(ROOT, emptyMap()))
+        // Per-name open counts give O(1) rejection of end tags that match
+        // nothing (a full-stack scan per stray end tag is O(n²) — M2 review).
+        val openCounts = HashMap<String, Int>()
 
         fun closeTop() {
             val closed = stack.removeAt(stack.size - 1)
+            openCounts.merge(closed.name, -1, Int::plus)
             stack.last().children.add(closed.toElement())
         }
 
@@ -50,11 +54,13 @@ object HtmlTree {
                         stack.last().children.add(HtmlNode.Element(token.name, token.attrs))
                     } else {
                         stack.add(OpenElement(token.name, token.attrs))
+                        openCounts.merge(token.name, 1, Int::plus)
                     }
                 }
                 is EndTag -> {
                     if (token.name in VOID_ELEMENTS) continue // e.g. stray </br>
-                    // Close through to the matching open element; ignore if none.
+                    if ((openCounts[token.name] ?: 0) <= 0) continue // nothing to close
+                    // Close through to the matching open element (guaranteed present).
                     val matchIndex = stack.indexOfLast { it.name == token.name }
                     if (matchIndex >= 1) { // never close the synthetic root
                         while (stack.size > matchIndex) closeTop()

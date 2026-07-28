@@ -95,8 +95,12 @@ object HtmlLexer {
                     while (i < n && input[i] != '=' && input[i] != '>' && input[i] != '/' && !input[i].isWhitespace()) i++
                     val attrName = input.substring(attrStart, i).lowercase()
                     var value = ""
-                    if (i < n && input[i] == '=') {
-                        i++
+                    // Tolerate whitespace around '=' (`href = "x"`).
+                    var afterName = i
+                    while (afterName < n && input[afterName].isWhitespace()) afterName++
+                    if (afterName < n && input[afterName] == '=') {
+                        i = afterName + 1
+                        while (i < n && input[i].isWhitespace()) i++
                         if (i < n && (input[i] == '"' || input[i] == '\'')) {
                             val quote = input[i]
                             i++
@@ -174,9 +178,17 @@ object HtmlLexer {
      * Decodes exactly once — never re-scans its own output.
      */
     private fun appendEntity(input: String, amp: Int, sb: StringBuilder): Int {
-        val n = input.length
-        val semi = input.indexOf(';', amp + 1)
-        if (semi == -1 || semi - amp > MAX_ENTITY_LEN) {
+        // Bounded scan: an entity fits in MAX_ENTITY_LEN chars or it isn't one.
+        // (An unbounded indexOf here is O(n²) on ampersand floods — M2 review.)
+        var semi = -1
+        val searchEnd = minOf(input.length, amp + MAX_ENTITY_LEN + 1)
+        for (j in amp + 1 until searchEnd) {
+            if (input[j] == ';') {
+                semi = j
+                break
+            }
+        }
+        if (semi == -1) {
             sb.append('&')
             return amp + 1
         }
