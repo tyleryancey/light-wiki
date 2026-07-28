@@ -8,4 +8,4 @@
 - **Version:** 0.1.0 (versionCode 1)
 - **Permissions:** "android.permission.INTERNET"
 - **Build command:** `./gradlew :tool:assembleRelease`
-- **Testing notes:** QA'd on the LightOS emulator and on a physical Light Phone III via Android Studio.
+- **Testing notes:** TODO: QA'd on the LightOS emulator and on a physical Light Phone III via Android Studio.
