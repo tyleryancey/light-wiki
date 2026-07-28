@@ -128,6 +128,13 @@ Wiki is a single-purpose reference tool. **Not browser-adjacent:** 100% native C
 
 ## Implementation notes
 
+### M2 (2026-07-28)
+
+- Parser substrate built TDD (red-green-refactor batches, all failures watched first): `HtmlToken`/`HtmlLexer` (single-pass char scanner; named+numeric entities decoded once, in text and attr values; comments/doctype/PI swallowed; `<script>`/`<style>` swallowed whole; truncated tags become text; tag names may contain `-`), `HtmlNode`/`HtmlTree` (stack builder; HTML5 void set; `p/li/dt/dd/tr/td/th/option` self-nesting auto-close; mismatched end tags close through; stray end tags ignored; EOF auto-close; synthetic `#root`). 28 unit tests + 3-test fixture gate.
+- **Fixture gate passed on first integration run**: all 12 harvested articles lex+build; largest (fourier-transform, 1.6 MB) parses in ~0.3 s incl. suite overhead; no raw entities survive decoding. The M2 kill criterion (3 days) was never approached — MediaWiki legacy-parse output is well-formed enough that tolerance is a safety net, not a crutch.
+- Pure-JVM gate holds: `grep -rn "^import android"` over `tool/src/**/dev/tyler/wiki` → 0.
+- Two lexer tests passed without failing first (bare-`&` and stray-`<` tolerance) — they document behaviors batch 1 already provided and guard the entity decoder; noted per TDD discipline.
+
 ### M1 (2026-07-28)
 
 - Phase-0 re-grep: all 13 verified facts re-checked against this repo's vendored `sdk/`/`plugin/` (fork pins audit commit `d2323e3`) — every line citation matched; no corrections. Weather example's on-disk package is `com/thelightphone/weather/` (fact 10's `examples/weather/WeatherApi.kt` shorthand stands). Scan walker confirmed filtering `extension == "kt"` (`LightSdkPlugin.kt:367`) — fixture content in `resources/` is unscanned, as assumed.
