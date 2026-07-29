@@ -9,7 +9,7 @@ sealed interface HtmlNode {
     ) : HtmlNode {
         /** Whitespace-separated `class` attribute as a set; empty when absent. */
         val classes: Set<String>
-            get() = attrs["class"]?.splitToSequence(' ', '\t', '\n', '\r', '')
+            get() = attrs["class"]?.splitToSequence(' ', '\t', '\n', '\r', '\u000C')
                 ?.filterTo(LinkedHashSet()) { it.isNotEmpty() } ?: emptySet()
     }
 
