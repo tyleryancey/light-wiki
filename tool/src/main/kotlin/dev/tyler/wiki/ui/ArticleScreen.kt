@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.lifecycle.viewModelScope
 import com.thelightphone.sdk.LightScreen
@@ -33,6 +34,7 @@ import dev.tyler.wiki.pipeline.friendlyErrorMessage
 import dev.tyler.wiki.ui.render.ArticleTypography
 import dev.tyler.wiki.ui.render.BlockRenderer
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -55,7 +57,9 @@ class ArticleViewModel(
     init {
         load()
         viewModelScope.launch {
-            dataStore.data.map { it[SCALE_KEY] ?: ArticleTypography.SCALE_DEFAULT }
+            dataStore.data
+                .catch { emit(emptyPreferences()) } // unreadable prefs → default scale, never a crash
+                .map { it[SCALE_KEY] ?: ArticleTypography.SCALE_DEFAULT }
                 .collect { scalePercent.value = it }
         }
     }
@@ -80,7 +84,11 @@ class ArticleViewModel(
         // App scope, not viewModelScope: backing out of the screen must not
         // cancel the write (M5 review finding 4b).
         WikiGraph.appScope.launch {
-            dataStore.edit { it[SCALE_KEY] = value }
+            try {
+                dataStore.edit { it[SCALE_KEY] = value }
+            } catch (_: Exception) {
+                // A failed persist must never crash reading; scale stays in memory.
+            }
         }
     }
 

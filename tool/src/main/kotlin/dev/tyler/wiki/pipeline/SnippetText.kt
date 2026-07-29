@@ -17,8 +17,9 @@ private val namedEntities = mapOf(
 
 /**
  * Convert a Wikipedia search snippet (HTML with `<span class="searchmatch">` highlights
- * and entities) to plain text for the search list. Jsoup lands in M3; this regex pass
- * is sufficient for the small, well-formed snippets the search endpoint returns.
+ * and entities) to plain text for the search list. A regex pass is sufficient for the
+ * small, well-formed snippets the search endpoint returns — the full parser in
+ * `parser/` is reserved for article bodies.
  */
 fun stripSnippetHtml(snippet: String): String {
     val withoutTags = htmlTagRegex.replace(snippet, "")
