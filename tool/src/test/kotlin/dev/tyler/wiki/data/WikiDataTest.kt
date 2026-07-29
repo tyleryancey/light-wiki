@@ -58,6 +58,8 @@ class WikiDataTest {
         assertFailsWith<IllegalArgumentException> { WikiHosts.assertAllowed("https://example.com/x") }
         assertFailsWith<IllegalArgumentException> { WikiHosts.assertAllowed("https://en.wikipedia.org.evil.com/x") }
         assertFailsWith<IllegalArgumentException> { WikiHosts.assertAllowed("http://en.wikipedia.org/insecure") }
+        assertFailsWith<IllegalArgumentException> { WikiHosts.assertAllowed("https://en.wikipedia.org@evil.com/x") }
+        assertFailsWith<IllegalArgumentException> { WikiHosts.assertAllowed("https://EN.WIKIPEDIA.ORG/x") }
     }
 
     // --- Repository over a fake api ---
@@ -128,6 +130,43 @@ class WikiDataTest {
         assertEquals("Hello world.", para.spans.joinToString("") { it.text })
         repo.article("Anything")
         assertEquals(1, api.parseCalls, "second read served from parsed-model cache")
+    }
+
+    // --- MediaWiki 200-with-error envelopes (M4-review finding 1) ---
+
+    private class ErrorEnvelopeApi : WikiApi {
+        var calls = 0
+        override suspend fun search(query: String): SearchResponse {
+            calls++
+            return SearchResponse(query = null) // {"error":...} decodes to null query
+        }
+        override suspend fun pageProps(title: String): PagepropsResponse {
+            calls++
+            return PagepropsResponse(query = null)
+        }
+        override suspend fun parseArticle(title: String): ParseResponse {
+            calls++
+            return ParseResponse(parse = null)
+        }
+    }
+
+    @Test
+    fun `api error envelope on search throws and caches nothing`() = runBlocking {
+        val api = ErrorEnvelopeApi()
+        val repo = WikiRepository(api)
+        assertFailsWith<java.io.IOException> { repo.search("mercury") }
+        assertFailsWith<java.io.IOException> { repo.search("mercury") }
+        assertEquals(2, api.calls, "an error result must never be cached")
+    }
+
+    @Test
+    fun `api error envelope on article throws instead of yielding a blank document`() = runBlocking {
+        val api = ErrorEnvelopeApi()
+        val repo = WikiRepository(api)
+        assertFailsWith<java.io.IOException> { repo.article("Gone") }
+        assertFailsWith<java.io.IOException> { repo.disambigSections("Gone") }
+        assertFailsWith<java.io.IOException> { repo.isDisambiguation("Gone") }
+        Unit
     }
 
     @Test
