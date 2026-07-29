@@ -17,7 +17,9 @@ object ArticleTypography {
     const val SCALE_MIN = 80
     const val SCALE_MAX = 180
     const val SCALE_STEP = 10
-    const val SCALE_DEFAULT = 110
+
+    /** Tyler amendment 2026-07-29: open at the smallest size (was the May D6 110). */
+    const val SCALE_DEFAULT = SCALE_MIN
 
     fun headingEm(level: Int): Float = when (level) {
         2 -> 1.35f
