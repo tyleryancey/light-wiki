@@ -252,6 +252,23 @@ class ArticleDocumentTest {
     }
 
     @Test
+    fun `display-none elements contribute no text`() {
+        // Wikipedia hides microformat spans (e.g. bday "(1867-11-07)") with
+        // inline display:none; the model carries no styles, so they must be
+        // skipped at extraction or they leak as duplicate text.
+        val doc = extract("""<p>Born <span style="display:none">(1867-11-07)</span>7 November 1867</p>""")
+        val para = doc.blocks.single() as Block.Paragraph
+        assertEquals("Born 7 November 1867", para.spans.joinToString("") { it.text })
+    }
+
+    @Test
+    fun `display-none matching is case-insensitive`() {
+        val doc = extract("""<p>A<span style="Display : None">HIDDEN</span>B</p>""")
+        val para = doc.blocks.single() as Block.Paragraph
+        assertEquals("AB", para.spans.joinToString("") { it.text })
+    }
+
+    @Test
     fun `sub and sup text is preserved as plain text`() {
         val doc = extract("<p>E = mc<sup>2</sup> and H<sub>2</sub>O</p>")
         val para = doc.blocks.single() as Block.Paragraph

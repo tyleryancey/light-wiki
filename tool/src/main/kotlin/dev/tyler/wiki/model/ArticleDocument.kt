@@ -242,6 +242,9 @@ data class ArticleDocument(val blocks: List<Block>) {
                     is TextNode -> pieces.add(RawPiece(n.text, frame.bold, frame.italic))
                     is Element -> {
                         when {
+                            // Hidden microformat spans (bday etc.) must not leak as text.
+                            n.attrs["style"]?.replace(WHITESPACE_RUN, "")
+                                ?.contains("display:none", ignoreCase = true) == true -> {}
                             n.name == "b" || n.name == "strong" ->
                                 pushChildren(n, bold = true, italic = frame.italic)
                             n.name == "i" || n.name == "em" ->

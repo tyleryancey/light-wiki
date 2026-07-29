@@ -99,8 +99,10 @@ cannot occur by construction (§10.1).
 
 Rendering is native Compose over `ArticleDocument`; no HTML, CSS, or script
 ever executes. Network egress is limited to `en.wikipedia.org` and
-`upload.wikimedia.org` (M4 adds a debug-build assertion at the client seam —
-re-cite here when it lands).
+`upload.wikimedia.org`, asserted at both client seams on every request:
+`WikiHosts.assertAllowed` in `data/WikiApi.kt` (API calls) and
+`ui/render/Images.kt` (image fetches). The assertion also refuses non-https
+URLs; it runs in all build types, not just debug.
 
 ---
 
@@ -170,17 +172,26 @@ everything else drops silently.*
 3. **"Not to be confused" hatnote carve-out** → v1 keeps drop-all (§2);
    carve-out → backlog.
 4. **Galleries** → dropped explicitly (§2) → backlog.
-5. **Math** → fallback-image path only: display math (`span.mwe-math-element`)
-   → `Block.MathImage`; inline math contributes its `alt` text to the
-   paragraph. No MathML → backlog.
+5. **Math** → **superseded by M6 discovery**: the planned fallback-image path
+   is unrenderable in v1 — MediaWiki math fallback images are (a) served from
+   `wikimedia.org/api/rest_v1/media/math/render/svg/…`, a **third host** not
+   on the §6 two-host allowlist, and (b) actual **SVG**, which
+   `BitmapFactory` cannot decode. Outcome: display math (`Block.MathImage`)
+   is extracted but **not rendered** (`BlockRenderer` skips it); inline math
+   still contributes its `alt` text (LaTeX source) to the paragraph. The
+   two-host defense claim stays intact. Rendering display math (PNG variant
+   endpoint + allowlist question, or MathML) → backlog, pending a scope
+   decision (deviates from the 03 §1 frozen table, which listed math
+   fallback images as in-scope).
 6. **IPA/pronunciation** → kept as plain text (§9).
 7. **Wide tables** → simplified text grid (`Block.SimpleTable`), horizontal
    scroll at render time; no grid-fidelity work in v1.
 8. **Orphan captions** → superseded natively: `Block.Figure` carries
-   dimensions (§4) for placeholder sizing, and a failed image load drops the
-   whole figure at render time — no orphan captions by construction (M6
-   enforces drop-figure-on-failure in `ui/render/Images.kt`; re-cite when it
-   lands).
+   dimensions (§4) for placeholder sizing; `Images.load`
+   (`ui/render/Images.kt`) returns null on any failure, and `FigureView`
+   (`ui/render/BlockRenderer.kt`) drops the whole figure — image and
+   caption — on that null, and renders the caption only once the image is
+   ready, so no orphan caption exists in any state, transient or settled.
 
 ---
 
