@@ -82,7 +82,7 @@ Two structural rules that govern every milestone:
 
 1. **SearchScreen** (`@InitialScreen`) — `LightTopBar` "Wiki"; `LightTextField` (read-only display) opens `LightTextInputEditor` (full-screen, weather pattern). Submit → ≤20 result rows (title + snippet). States: idle (hint copy), loading, results, empty ("No articles found."), error+Retry.
 2. **DisambiguationScreen** — chooser list (title + description); tap → ArticleScreen. Bounded; the app's only navigation surface.
-3. **ArticleScreen** — `LightTopBar` ellipsized title; `LazyColumn` of rendered blocks; bottom bar small-A/large-A `LightBarButton`s (text scale 80–180 step 10, default 110, persisted; no reload, no scroll jump). Back pops the article stack (chooser round-trips preserved), then Search.
+3. **ArticleScreen** — `LightTopBar` ellipsized title; `LazyColumn` of rendered blocks; bottom bar small-A/large-A `LightBarButton`s (text scale 80–180 step 10, default 80 — Tyler amendment 2026-07-29, was 110 — persisted; no reload, no scroll jump). Back pops the article stack (chooser round-trips preserved), then Search.
 
 Flow: Search → submit → if disambiguation → chooser → article; else article directly. Process death → Search (by design: no history, in-memory back stack).
 
@@ -128,6 +128,15 @@ Wiki is a single-purpose reference tool. **Not browser-adjacent:** 100% native C
 - Don't use Claude Design or its "Handoff to Claude Code" export (emits React, not Compose) — standing house rule.
 
 ## Implementation notes
+
+### Post-M7 amendments (2026-07-29, Tyler)
+
+- **Back affordance** (PR #9): `LightTopBar` back chevron on Disambiguation and Article screens (weather idiom) — gap found on hardware; adb KEYCODE_BACK had masked that the LP3 has no hardware back. Chevron round-trip verified on TLP301.
+- **Default text scale = 80** (smallest; supersedes the May D6 110): `SCALE_DEFAULT = SCALE_MIN`, test-first.
+- **Clear-search chevron** on the Search top bar whenever a query is active — clears query + results back to the idle hint (there was no way off the results state; Search is the initial screen). Both verified on TLP301 after `pm clear`; screenshots 03/05 retaken (results chevron; article at the new default).
+- Display-math decision recorded (exclusions §10.5): v1 ships with display equations dropped; PNG-endpoint rendering is backlog #1.
+- Confirmed with Tyler: search history and favorites/lists stay excluded (Never list, D10) — they are the defense's “no state designed to be checked again” line.
+
 
 ### M7 (2026-07-29)
 

@@ -30,6 +30,13 @@ class ArticleTypographyTest {
     }
 
     @Test
+    fun `default scale is the smallest size`() {
+        // Tyler amendment 2026-07-29 (supersedes the May D6 110 default).
+        assertEquals(ArticleTypography.SCALE_MIN, ArticleTypography.SCALE_DEFAULT)
+        assertEquals(80, ArticleTypography.SCALE_DEFAULT)
+    }
+
+    @Test
     fun `scale steps by ten and clamps at both bounds`() {
         assertEquals(120, ArticleTypography.stepUp(110))
         assertEquals(180, ArticleTypography.stepUp(180))

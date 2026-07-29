@@ -21,6 +21,7 @@ import com.thelightphone.sdk.LightScreen
 import com.thelightphone.sdk.LightViewModel
 import com.thelightphone.sdk.SealedLightActivity
 import com.thelightphone.sdk.rememberKeyboardOptions
+import com.thelightphone.sdk.ui.LightBarButton
 import com.thelightphone.sdk.ui.LightIcons
 import com.thelightphone.sdk.ui.LightText
 import com.thelightphone.sdk.ui.LightTextField
@@ -126,6 +127,15 @@ class SearchViewModel : LightViewModel<Unit>() {
     fun navConsumed() {
         navTarget.value = null
         mode.value = settled
+    }
+
+    /** Clears the query and its results, returning to the idle hint state. */
+    fun clearSearch() {
+        if (mode.value is Mode.Loading) return // don't yank state mid-flight
+        navTarget.value = null
+        query.value = ""
+        settled = Mode.Idle
+        mode.value = Mode.Idle
     }
 }
 
@@ -255,8 +265,21 @@ class SearchScreen(sealedActivity: SealedLightActivity) :
 
     @Composable
     private fun SearchFrame(query: String, body: @Composable () -> Unit) {
+        // A settled search (results/empty/error) gets a back chevron that
+        // clears the query and its results — without it there is no way off
+        // the results state, since Search is the initial screen.
+        val clearable = query.isNotBlank()
         Column(modifier = Modifier.fillMaxSize()) {
             LightTopBar(
+                leftButton = if (clearable) {
+                    LightBarButton.LightIcon(
+                        icon = LightIcons.BACK,
+                        onClick = viewModel::clearSearch,
+                        contentDescription = "Clear search",
+                    )
+                } else {
+                    null
+                },
                 center = LightTopBarCenter.Text("Wiki"),
                 modifier = Modifier.padding(bottom = 1f.gridUnitsAsDp()),
             )
