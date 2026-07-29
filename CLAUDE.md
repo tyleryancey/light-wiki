@@ -129,6 +129,15 @@ Wiki is a single-purpose reference tool. **Not browser-adjacent:** 100% native C
 
 ## Implementation notes
 
+### M6 (2026-07-28)
+
+- **The image spike PASSED** — the platform-first path (`upload.wikimedia.org` → OkHttp → `BitmapFactory.decodeStream` → `ImageBitmap` → Compose `Image` with saturation-0 `ColorFilter`) works on the AVD: real article photographs render grayscale with muted captions (screenshot: Great Wave's ukiyo-e plate). No sandbox obstruction; the plugin scan accepts `android.graphics.BitmapFactory` and direct OkHttp. **No text-only retreat needed.**
+- `ui/render/Images.kt`: bytes → bounds-decode → power-of-two `inSampleSize` downsample (≤1080 px) → bounded 24-entry bitmap LRU; `WikiHosts.assertAllowed` on every image URL; failures return null and log a warning.
+- Drop-figure-on-failure verified by the plan's exact scenario: article loaded, airplane mode enabled mid-article, scrolled into an unloaded figure — logcat shows the failed load, screen shows continuous text with **no orphan caption and no gap** (§10.8 by construction).
+- `InfoboxCard` renders as a hairline-bounded key-value card (title centered bold 0.95em; muted bold labels over values); `SimpleTable` as a text grid with min 6em columns and horizontal scroll. Hidden `display:none` microformat spans (bday dates) leaked as duplicate text — fixed at inline extraction, failing test first.
+- **Math cannot render in v1** (discovery, recorded in exclusions §10.5): fallback images are SVG on a third host (`wikimedia.org`) — doubly excluded by the two-host rule and `BitmapFactory`. Display math drops; inline math survives as alt text. **Deviates from 03 §1's frozen table (math fallback images were in-scope) — needs Tyler's sign-off**; PNG-variant + allowlist question parked for backlog.
+- Memory after image-heavy browsing: ~18 MB native heap / ~6.5 MB Dalvik — bounded by the LRU, no growth pattern.
+
 ### M5 (2026-07-28)
 
 - `ui/render/ArticleTypography.kt` (pure JVM, TDD): May `article.css` hierarchy as data — base 18sp/1.6, headings 1.25 lh with h2 1.35em · h3 1.15em · h4 1.02em, lead 1.05em, captions 0.85em; A/A scale 80–180 step 10 default 110 with clamped step functions; lead = first Paragraph block. 5 tests.

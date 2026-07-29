@@ -1,7 +1,11 @@
 package dev.tyler.wiki.ui.render
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
@@ -20,6 +24,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -27,6 +34,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import com.thelightphone.sdk.ui.LightThemeTokens
@@ -63,7 +71,14 @@ fun BlockRenderer(
                 is Block.Paragraph -> ParagraphBlock(block, index == leadIndex, scalePercent)
                 is Block.ListBlock -> ListBlockView(block, scalePercent)
                 is Block.Blockquote -> BlockquoteView(block, scalePercent)
-                else -> Unit // M6: Figure, InfoboxCard, SimpleTable, MathImage
+                is Block.Figure -> FigureView(block, scalePercent)
+                is Block.InfoboxCard -> InfoboxCardView(block, scalePercent)
+                is Block.SimpleTable -> SimpleTableView(block, scalePercent)
+                // MathImage: unrenderable in v1 — the fallback images are SVG
+                // (BitmapFactory cannot decode) on a third host (wikimedia.org,
+                // not on the two-host allowlist). Display math drops; inline
+                // math already survives as alt text. See exclusions §10.5.
+                else -> Unit
             }
         }
     }
@@ -199,6 +214,154 @@ private fun ListItemRow(item: ListItem, marker: String, indentEm: Float, scalePe
             text = annotated(item.spans),
             style = bodyStyle(ArticleTypography.BODY_EM, scalePercent),
         )
+    }
+}
+
+private sealed interface ImageLoad {
+    data object Loading : ImageLoad
+    data class Ready(val bitmap: androidx.compose.ui.graphics.ImageBitmap) : ImageLoad
+    data object Failed : ImageLoad
+}
+
+@Composable
+private fun FigureView(block: Block.Figure, scalePercent: Int) {
+    val load = androidx.compose.runtime.produceState<ImageLoad>(ImageLoad.Loading, block.src) {
+        value = Images.load(block.src)?.let { ImageLoad.Ready(it) } ?: ImageLoad.Failed
+    }.value
+
+    // Failure drops the WHOLE figure — image and caption together (§10.8).
+    if (load is ImageLoad.Failed) return
+
+    val body = bodySize(scalePercent)
+    val aspect = if (block.width != null && block.height != null && block.height!! > 0) {
+        block.width!!.toFloat() / block.height!!.toFloat()
+    } else {
+        null
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 1f.gridUnitsAsDp())
+            .padding(bottom = (body * ArticleTypography.PARAGRAPH_SPACING_EM).textDp()),
+    ) {
+        when (load) {
+            is ImageLoad.Loading -> if (aspect != null) {
+                // Aspect-ratio placeholder: correct space reserved, no mid-article gap.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(aspect),
+                )
+            }
+            is ImageLoad.Ready -> Image(
+                bitmap = load.bitmap,
+                contentDescription = block.caption,
+                contentScale = ContentScale.FillWidth,
+                colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            is ImageLoad.Failed -> Unit // unreachable (early return)
+        }
+        block.caption?.let { caption ->
+            Text(
+                text = caption,
+                style = bodyStyle(ArticleTypography.CAPTION_EM, scalePercent)
+                    .copy(color = LightThemeTokens.colors.contentSecondary),
+                modifier = Modifier.padding(top = 0.3f.gridUnitsAsDp()),
+            )
+        }
+    }
+}
+
+@Composable
+private fun InfoboxCardView(block: Block.InfoboxCard, scalePercent: Int) {
+    if (block.title == null && block.rows.isEmpty()) return
+    val body = bodySize(scalePercent)
+
+    @Composable
+    fun Hairline() = Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(0.05f.gridUnitsAsDp())
+            .alpha(0.35f)
+            .background(LightThemeTokens.colors.contentSecondary),
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 1f.gridUnitsAsDp())
+            .padding(bottom = (body * ArticleTypography.PARAGRAPH_SPACING_EM).textDp()),
+    ) {
+        Hairline()
+        block.title?.let { title ->
+            Text(
+                text = title,
+                style = bodyStyle(ArticleTypography.INFOBOX_EM, scalePercent)
+                    .copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 0.4f.gridUnitsAsDp()),
+                textAlign = TextAlign.Center,
+            )
+            Hairline()
+        }
+        block.rows.forEach { row ->
+            Column(modifier = Modifier.padding(vertical = 0.3f.gridUnitsAsDp())) {
+                Text(
+                    text = row.label,
+                    style = bodyStyle(ArticleTypography.CAPTION_EM, scalePercent)
+                        .copy(fontWeight = FontWeight.Bold, color = LightThemeTokens.colors.contentSecondary),
+                )
+                Text(
+                    text = row.value,
+                    style = bodyStyle(ArticleTypography.INFOBOX_EM, scalePercent),
+                )
+            }
+        }
+        Hairline()
+    }
+}
+
+@Composable
+private fun SimpleTableView(block: Block.SimpleTable, scalePercent: Int) {
+    if (block.headers.isEmpty() && block.rows.isEmpty()) return
+    val body = bodySize(scalePercent)
+    val cellMin = (body * ArticleTypography.TABLE_CELL_MIN_EM).textDp()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 1f.gridUnitsAsDp())
+            .padding(bottom = (body * ArticleTypography.PARAGRAPH_SPACING_EM).textDp())
+            .horizontalScroll(rememberScrollState()),
+    ) {
+        if (block.headers.isNotEmpty()) {
+            Row {
+                block.headers.forEach { header ->
+                    Text(
+                        text = header,
+                        style = bodyStyle(ArticleTypography.CAPTION_EM, scalePercent)
+                            .copy(fontWeight = FontWeight.Bold),
+                        modifier = Modifier
+                            .widthIn(min = cellMin)
+                            .padding(end = 0.6f.gridUnitsAsDp(), bottom = 0.2f.gridUnitsAsDp()),
+                    )
+                }
+            }
+        }
+        block.rows.forEach { row ->
+            Row {
+                row.forEach { cell ->
+                    Text(
+                        text = cell,
+                        style = bodyStyle(ArticleTypography.CAPTION_EM, scalePercent),
+                        modifier = Modifier
+                            .widthIn(min = cellMin)
+                            .padding(end = 0.6f.gridUnitsAsDp(), bottom = 0.15f.gridUnitsAsDp()),
+                    )
+                }
+            }
+        }
     }
 }
 

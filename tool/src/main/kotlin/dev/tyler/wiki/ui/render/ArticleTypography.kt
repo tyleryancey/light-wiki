@@ -50,4 +50,6 @@ object ArticleTypography {
     const val LIST_ITEM_SPACING_EM = 0.22f
     const val MARKER_GUTTER_EM = 1.5f
     const val BLOCKQUOTE_INSET_EM = 0.78f
+    const val INFOBOX_EM = 0.95f // css: table.infobox { font-size: 0.95em }
+    const val TABLE_CELL_MIN_EM = 6f // simplified grid: readable min column
 }
