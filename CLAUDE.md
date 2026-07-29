@@ -129,6 +129,14 @@ Wiki is a single-purpose reference tool. **Not browser-adjacent:** 100% native C
 
 ## Implementation notes
 
+### M4 (2026-07-28)
+
+- Data layer TDD: DTOs decoded against the real captured fixture JSON (search 20 hits; pageprops disambiguation polarity both ways; parse envelope); `WikiHosts.assertAllowed` (https + two-host, tested incl. `en.wikipedia.org.evil.com` and plain http rejections) runs on every `KtorWikiApi` request; `WikiRepository` LRUs 32/64/16 cache *parsed models* (verified: 1 api call per 2 reads for search/sections/article), parsing on `Dispatchers.Default`. UA `LightWiki/0.1 (+https://github.com/tyleryancey/light-wiki)`. The 3 DTO tests validated against fixtures rather than failing first (declarative shape); the 6 behavior tests were watched RED.
+- Screens: sample tool code deleted; `ToolEntryPoint` (empty hooks), `SearchScreen` (`@InitialScreen`, mode-machine: Idle/Input/Loading/Results/Empty/Error; weather's `LightTextInputEditor` session pattern; VM emits `NavTarget`, `Content` consumes via `LaunchedEffect` then `navigateTo`), `DisambiguationScreen(title)` chooser, `ArticleScreen(title)` M5 stub showing live block count. `WikiGraph` service locator. Nothing uses `onScreenShow` for state (re-fire trap avoided by construction).
+- AVD walkthrough (emulator-5554, all screenshots in scratchpad): idle → editor+LP3 keyboard → live "mercury" results with cleaned snippets/ellipsis → chooser (pre-heading entries + "Companies" section, DisambigParser live) → Mercury (element) stub **140 blocks through the real pipeline** → back returns to chooser → airplane-mode error shows ported friendly copy + RETRY → recovery to live results → empty state ("No articles found."). `serverPackage` flipped locally and restored before commit.
+- Observed: the input editor retains the previous query text for refinement (same shared-`TextFieldState` behavior as weather) — kept as intentional edit-your-query UX.
+- Idiom audits: `Color(` 0 · raw `.dp` 0 (grid units only) · blocked imports 0. Suite 130 green.
+
 ### M3 (2026-07-28)
 
 - **Pure-JVM gate closed — UI may now begin.** 116 tests green (`:tool:testDebugUnitTest`), 0 android imports under `dev/tyler/wiki`; May target of ≥61 nearly doubled.
