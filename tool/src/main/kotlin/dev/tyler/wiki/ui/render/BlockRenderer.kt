@@ -47,9 +47,9 @@ import dev.tyler.wiki.model.ListItem
  * ArticleDocument → Compose. The only place block rendering happens; nothing
  * above this file knows about Compose (the renderer seam).
  *
- * M5 renders the text blocks (Heading, Paragraph, ListBlock, Blockquote).
- * Figure / InfoboxCard / SimpleTable / MathImage land in M6 and are skipped
- * silently here. Every color comes from [LightThemeTokens]; sizes AND block
+ * Renders every v1 block type except MathImage, which is deliberately
+ * skipped (exclusions §10.5: math fallback images are SVG on a third host).
+ * Every color comes from [LightThemeTokens]; sizes AND block
  * spacing follow [ArticleTypography] (the May css em hierarchy) scaled by
  * the A/A percent — spacing is em-derived so the whole page scales together.
  */
