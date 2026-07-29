@@ -129,6 +129,15 @@ Wiki is a single-purpose reference tool. **Not browser-adjacent:** 100% native C
 
 ## Implementation notes
 
+### M3 (2026-07-28)
+
+- **Pure-JVM gate closed — UI may now begin.** 116 tests green (`:tool:testDebugUnitTest`), 0 android imports under `dev/tyler/wiki`; May target of ≥61 nearly doubled.
+- `ArticlePipeline` (tree→tree, immutable depth-capped rebuilds ≤256): May pass order preserved (dropAppendix → stripLinks → fixImages → stripClutter → reflowInfobox). 03 §1 resolutions applied: galleries in the clutter list (res.4); `<style>`/TemplateStyles structurally moot (lexer raw-skips); **images KEEP width/height** (res.8 reverses May). Infobox reflow is a single-pass rebuild — removal+insertion must share one traversal because rebuilding invalidates reference identity (caught pre-test).
+- 26 of May's 28 `HtmlProcessorTest` re-expressed against the tree (27 with the new gallery test); retired: stylesheet-injection + viewport-meta (WebView-era, no counterpart); dimension-strip test asserts the reversed keep-dimensions contract.
+- `DisambigParser` ported onto raw tree (12/12 May tests), chrome skipped both at container level and inside entries; `LruCache` + 4 tests ported byte-identical to `data/`.
+- `ArticleDocument`: closed block vocabulary (Heading 2–4 · Paragraph(spans) · ListBlock(≤2 levels, deeper flattened) · Blockquote · Figure(src,w,h,caption) · InfoboxCard · SimpleTable · MathImage); iterative inline-span extraction with bold/italic state; inline math contributes `alt` text; unknowns drop silently; transparent containers (`div section center main article dl dd`) recurse (cap 64). 19 unit + 6 fixture-extraction gates (Mercury infobox-after-lead, Fourier MathImages, 100+-row population table, Marie Curie card ≥5 rows, stub, Gettysburg blockquotes).
+- `rendering-exclusions.md` v4 committed at repo root: §§1–8 re-cited to new files, v3 §5/§6 (CSS/WebView) superseded structurally, §10 records the 03 §1 resolutions; audit greps re-pointed.
+
 ### M2 (2026-07-28)
 
 - Parser substrate built TDD (red-green-refactor batches, all failures watched first): `HtmlToken`/`HtmlLexer` (single-pass char scanner; named+numeric entities decoded once, in text and attr values; comments/doctype/PI swallowed; `<script>`/`<style>` swallowed whole; truncated tags become text; tag names may contain `-`), `HtmlNode`/`HtmlTree` (stack builder; HTML5 void set; `p/li/dt/dd/tr/td/th/option` self-nesting auto-close; mismatched end tags close through; stray end tags ignored; EOF auto-close; synthetic `#root`). 25 unit tests + 3-test fixture gate at review time (see below for post-review count).
