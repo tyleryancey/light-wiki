@@ -103,6 +103,32 @@ class ArticleDocumentTest {
         assertTrue(top.children.all { it.children.isEmpty() }, "no third level survives")
     }
 
+    @Test
+    fun `flattened nesting preserves document order across siblings`() {
+        // M3-review finding 1: sibling sub-runs must not reorder.
+        val doc = extract(
+            """
+            <ul><li>top<ul>
+              <li>A<ul><li>A1</li><li>A2</li></ul></li>
+              <li>B<ul><li>B1</li></ul></li>
+            </ul></li></ul>
+            """.trimIndent(),
+        )
+        val top = (doc.blocks.single() as Block.ListBlock).items.single()
+        assertEquals(
+            listOf("A", "A1", "A2", "B", "B1"),
+            top.children.map { it.spans.single().text },
+        )
+    }
+
+    @Test
+    fun `whitespace at style boundaries collapses to a single space`() {
+        // M3-review finding 5: no double space across a style change.
+        val doc = extract("<p>foo\n<b>\nbar</b></p>")
+        val para = doc.blocks.single() as Block.Paragraph
+        assertEquals(listOf(InlineSpan("foo "), InlineSpan("bar", bold = true)), para.spans)
+    }
+
     // --- Blockquote ---
 
     @Test

@@ -121,25 +121,26 @@ data class ArticleDocument(val blocks: List<Block>) {
             return items
         }
 
-        /** Flattens every list nested under [li] (any depth) into one level of items. */
-        private fun collectNestedItems(li: Element, out: MutableList<ListItem>) {
-            val stack = ArrayDeque<Element>()
-            for (i in li.children.indices.reversed()) (li.children[i] as? Element)?.let(stack::addLast)
-            while (stack.isNotEmpty()) {
-                val el = stack.removeLast()
-                if (el.name == "ul" || el.name == "ol") {
-                    for (child in el.children) {
-                        if (child is Element && child.name == "li") {
-                            val spans = inlineSpans(child, excludeNestedLists = true)
+        /**
+         * Flattens every list nested under [li] (any depth) into one level of
+         * items, in document order: each item's own descendants are emitted
+         * immediately after it, before its next sibling (M3 review finding 1).
+         * Recursion is bounded by MAX_DEPTH.
+         */
+        private fun collectNestedItems(li: Element, out: MutableList<ListItem>, depth: Int = 0) {
+            if (depth > MAX_DEPTH) return
+            for (child in li.children) {
+                if (child !is Element) continue
+                if (child.name == "ul" || child.name == "ol") {
+                    for (grand in child.children) {
+                        if (grand is Element && grand.name == "li") {
+                            val spans = inlineSpans(grand, excludeNestedLists = true)
                             if (spans.isNotEmpty()) out.add(ListItem(spans))
-                            // Deeper lists inside this li flatten into the same run.
-                            for (i in child.children.indices.reversed()) {
-                                (child.children[i] as? Element)?.let(stack::addLast)
-                            }
+                            collectNestedItems(grand, out, depth + 1)
                         }
                     }
                 } else {
-                    for (i in el.children.indices.reversed()) (el.children[i] as? Element)?.let(stack::addLast)
+                    collectNestedItems(child, out, depth + 1)
                 }
             }
         }
@@ -281,6 +282,13 @@ data class ArticleDocument(val blocks: List<Block>) {
                 spans[0] = spans[0].copy(text = spans[0].text.trimStart())
                 val lastIdx = spans.size - 1
                 spans[lastIdx] = spans[lastIdx].copy(text = spans[lastIdx].text.trimEnd())
+            }
+            // Whitespace on both sides of a style boundary would render as a
+            // double space (HTML collapses across elements) — M3 review finding 5.
+            for (i in 1 until spans.size) {
+                if (spans[i - 1].text.endsWith(" ") && spans[i].text.startsWith(" ")) {
+                    spans[i] = spans[i].copy(text = spans[i].text.trimStart())
+                }
             }
             return spans.filter { it.text.isNotEmpty() }
         }

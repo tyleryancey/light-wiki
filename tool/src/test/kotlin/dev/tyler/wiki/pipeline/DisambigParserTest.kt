@@ -201,6 +201,45 @@ class DisambigParserTest {
     }
 
     @Test
+    fun `chrome inside a legacy-shape heading does not leak into heading text`() {
+        // M3-review finding 2: donor removed chrome globally; the port must too.
+        val sections = parse(
+            """
+            <div class="mw-parser-output">
+            <h2><span class="mw-headline">Companies</span><span class="mw-editsection">[edit]</span></h2>
+            <ul><li><a href="/wiki/Foo_Inc" title="Foo Inc">Foo Inc</a>, a company</li></ul>
+            </div>
+            """.trimIndent(),
+        )
+        assertEquals("Companies", sections[0].heading)
+    }
+
+    @Test
+    fun `chrome inside an entry does not leak into its description`() {
+        val sections = parse(
+            """
+            <div class="mw-parser-output">
+            <ul><li><a href="/wiki/Foo" title="Foo">Foo</a>, a thing <span class="noprint">NOPRINT_JUNK</span></li></ul>
+            </div>
+            """.trimIndent(),
+        )
+        assertEquals("a thing", sections[0].entries[0].description)
+    }
+
+    @Test
+    fun `real mercury disambiguation fixture parses cleanly`() {
+        // Gate: the harvested disambig fixture exercised end-to-end.
+        val html = javaClass.getResourceAsStream("/fixtures/articles/mercury-disambiguation.html")!!
+            .bufferedReader().readText()
+        val sections = DisambigParser.parse(HtmlTree.parse(html))
+        assertTrue(sections.size >= 10, "expected many sections, got ${sections.size}")
+        val entries = sections.flatMap { it.entries }
+        assertTrue(entries.size >= 50, "expected many entries, got ${entries.size}")
+        assertTrue(sections.mapNotNull { it.heading }.none { "[edit]" in it }, "no editsection leak in headings")
+        assertTrue(entries.none { it.title.isBlank() }, "no blank titles")
+    }
+
+    @Test
     fun `first usable link wins over inline cross-references`() {
         val sections = parse(
             """

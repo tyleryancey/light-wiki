@@ -67,7 +67,7 @@ object DisambigParser {
                 }
                 child.name == "ul" || child.name == "ol" -> {
                     for (li in child.children) {
-                        if (li is Element && li.name == "li") {
+                        if (li is Element && li.name == "li" && !isNonEntryChrome(li)) {
                             extractEntry(li)?.let(currentEntries::add)
                         }
                     }
@@ -149,6 +149,12 @@ object DisambigParser {
         return null
     }
 
+    /**
+     * Text content with chrome elements skipped throughout — the donor
+     * removed `NON_ENTRY_SELECTORS` globally before extracting any text, so
+     * chrome nested inside headings or entries must not leak (M3 review
+     * finding 2).
+     */
     private fun flatText(root: Element): String {
         val sb = StringBuilder()
         val stack = ArrayDeque<HtmlNode>()
@@ -156,7 +162,10 @@ object DisambigParser {
         while (stack.isNotEmpty()) {
             when (val n = stack.removeLast()) {
                 is TextNode -> sb.append(n.text)
-                is Element -> for (i in n.children.indices.reversed()) stack.addLast(n.children[i])
+                is Element -> {
+                    if (isNonEntryChrome(n)) continue
+                    for (i in n.children.indices.reversed()) stack.addLast(n.children[i])
+                }
             }
         }
         return sb.toString()

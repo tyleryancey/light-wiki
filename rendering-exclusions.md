@@ -84,7 +84,9 @@ excluded.*
 ## 5. Style handling (supersedes v3 §5 "CSS-level exclusions")
 *Structurally enforced — no CSS exists in this app.*
 
-The parser swallows `<style>` blocks whole (`HtmlLexer.RAW_SKIP_TAGS`), the
+The parser swallows `<style>` **and `<script>`** elements whole, content
+included (`HtmlLexer.RAW_SKIP_TAGS = {script, style}` — the lexer never emits
+them, so §6's "no script executes" is also a lex-time guarantee), the
 document model carries no style attributes forward, and the renderer draws
 every color from `LightThemeTokens`. TemplateStyles, inline colors, `bgcolor`
 — the entire "stray color past the dark theme" bug class of the WebView era —
@@ -122,7 +124,15 @@ pipeline.*
   `vertical-navbox`, `toc`, `tocright`, `metadata`, `noprint`, `thumb`,
   `mw-editsection` — both as container children and when searching links
   inside an entry.
+- Chrome skipping is enforced during every text extraction too — headings and
+  entry descriptions never include chrome text nested inside them (the May
+  donor removed chrome globally before parsing; same net behavior).
+- **Documented deviation from the donor:** entry-description trimming also
+  strips a leading NBSP (U+00A0). The donor's trim set carried a duplicate
+  plain space where an NBSP was evidently intended; the port trims the NBSP,
+  so `<a>Foo</a>&nbsp;– gloss` yields `gloss`, not `– gloss`.
 - An `<li>` is dropped **unless** its first usable `<a>` is an article link.
+  A chrome-classed `<li>` is itself skipped.
   Excluded: external interwiki (`a.extiw`), red links (`a.new`), and
   non-article namespaces (`NON_ARTICLE_NAMESPACES`): `File`, `Image`, `Media`,
   `Wikipedia`, `WP`, `Help`, `Category`, `Template`, `Special`, `Portal`,
