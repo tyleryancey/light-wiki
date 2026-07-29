@@ -121,12 +121,21 @@ Wiki is a single-purpose reference tool. **Not browser-adjacent:** 100% native C
 - `LightTextField` cannot take typing; `LightTextInputEditor` is a full-screen destination, not an inline widget — lay out Search around that.
 - SDK back stack + VMs are in-memory; process death → Search screen by design (no restoration work).
 - Wikipedia HTML shifts (the May code already handles two heading shapes). Fixtures pin today's shape; a live-fetch smoke test in M7 catches drift before submission.
+- `HtmlTree.parse` is fully iterative and survives adversarially deep trees (100 k nesting builds in ~9 ms), but `HtmlNode.Element` is a data class — `equals`/`hashCode`/`toString` recurse through children, and any recursive walker will StackOverflow on such a tree. M3+ pipeline walkers must iterate (explicit stack) or bound depth; never call `==`/`toString()` on untrusted whole trees outside tests.
 - `~/Documents/_archive/lightos/lightwiki` (May 2026 Phase-1 app) is a **read-only donor** — pipeline semantics, test fixtures/assertions, `rendering-exclusions.md`, `article.css` values. Never modify it.
 - `lightphone/*` is strictly read-only — no pushes, issues, or PRs; all upstream communication is Tyler's, human-written.
 - Tokens/credentials never inline in commands, output, or files — hand the command to Tyler.
 - Don't use Claude Design or its "Handoff to Claude Code" export (emits React, not Compose) — standing house rule.
 
 ## Implementation notes
+
+### M2 (2026-07-28)
+
+- Parser substrate built TDD (red-green-refactor batches, all failures watched first): `HtmlToken`/`HtmlLexer` (single-pass char scanner; named+numeric entities decoded once, in text and attr values; comments/doctype/PI swallowed; `<script>`/`<style>` swallowed whole; truncated tags become text; tag names may contain `-`), `HtmlNode`/`HtmlTree` (stack builder; HTML5 void set; `p/li/dt/dd/tr/td/th/option` self-nesting auto-close; mismatched end tags close through; stray end tags ignored; EOF auto-close; synthetic `#root`). 25 unit tests + 3-test fixture gate at review time (see below for post-review count).
+- **Fixture gate passed on first integration run**: all 12 harvested articles lex+build; largest (fourier-transform, 1.6 MB) parses in ~0.3 s incl. suite overhead; no raw entities survive decoding. The M2 kill criterion (3 days) was never approached — MediaWiki legacy-parse output is well-formed enough that tolerance is a safety net, not a crutch.
+- Pure-JVM gate holds: `grep -rn "^import android"` over `tool/src/**/dev/tyler/wiki` → 0.
+- Two lexer tests passed without failing first (bare-`&` and stray-`<` tolerance) — they document behaviors batch 1 already provided and guard the entity decoder; noted per TDD discipline.
+- M2 fuzz review (fresh-context subagent) found and measured **two adversarial O(n²) paths**, both unreachable from well-formed MediaWiki output (fixtures structurally can't catch them): (1) unbounded `indexOf(';')` in entity decoding — 6.5 s on a 640 KB `&`-flood; (2) full-stack `indexOfLast` per unmatched end tag — 13.5 s at 80 k stray end tags. Both fixed with failing scaling probes first (bounded entity scan window; per-name open-count map for O(1) stray-end-tag rejection); probes stay in the suite as regression guards (<2 s bounds). Also fixed: spaced `=` attribute tolerance, `classes` splitting on any ASCII whitespace. Review's no-throw fuzz batch (numeric overflow, EOF truncations, NULs, nameless attrs, unterminated raw-skip) all passed unchanged. Suite (from JUnit XML): 29 parser unit (16 lexer + 13 tree) + 3 fixture-gate + 16 pipeline = 48.
 
 ### M1 (2026-07-28)
 
