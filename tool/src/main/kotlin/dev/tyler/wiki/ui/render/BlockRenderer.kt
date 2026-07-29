@@ -3,12 +3,14 @@ package dev.tyler.wiki.ui.render
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -18,12 +20,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import com.thelightphone.sdk.ui.LightThemeTokens
 import com.thelightphone.sdk.ui.gridUnitsAsDp
@@ -37,8 +41,9 @@ import dev.tyler.wiki.model.ListItem
  *
  * M5 renders the text blocks (Heading, Paragraph, ListBlock, Blockquote).
  * Figure / InfoboxCard / SimpleTable / MathImage land in M6 and are skipped
- * silently here. Every color comes from [LightThemeTokens]; sizes follow
- * [ArticleTypography] (the May css hierarchy) scaled by the A/A percent.
+ * silently here. Every color comes from [LightThemeTokens]; sizes AND block
+ * spacing follow [ArticleTypography] (the May css em hierarchy) scaled by
+ * the A/A percent — spacing is em-derived so the whole page scales together.
  */
 @Composable
 fun BlockRenderer(
@@ -65,6 +70,14 @@ fun BlockRenderer(
 }
 
 // --- Styles -----------------------------------------------------------------
+
+/** An sp quantity as Dp, so em-derived spacing scales exactly with the text. */
+@Composable
+private fun Float.textDp(): Dp = with(LocalDensity.current) { this@textDp.sp.toDp() }
+
+@Composable
+private fun bodySize(scalePercent: Int): Float =
+    ArticleTypography.spFor(ArticleTypography.BODY_EM, scalePercent)
 
 @Composable
 private fun bodyStyle(em: Float, scalePercent: Int, lineHeight: Float = ArticleTypography.BODY_LINE_HEIGHT): TextStyle {
@@ -98,7 +111,10 @@ private fun HeadingBlock(block: Block.Heading, scalePercent: Int) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 1f.gridUnitsAsDp())
-            .padding(top = 1.2f.gridUnitsAsDp(), bottom = 0.4f.gridUnitsAsDp()),
+            .padding(
+                top = (size * ArticleTypography.HEADING_TOP_EM).textDp(),
+                bottom = (size * ArticleTypography.HEADING_BOTTOM_EM).textDp(),
+            ),
     ) {
         Text(
             text = block.text,
@@ -132,22 +148,28 @@ private fun ParagraphBlock(block: Block.Paragraph, isLead: Boolean, scalePercent
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 1f.gridUnitsAsDp())
-            .padding(bottom = 0.7f.gridUnitsAsDp()),
+            .padding(bottom = (bodySize(scalePercent) * ArticleTypography.PARAGRAPH_SPACING_EM).textDp()),
     )
 }
 
 @Composable
 private fun ListBlockView(block: Block.ListBlock, scalePercent: Int) {
+    val body = bodySize(scalePercent)
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 1f.gridUnitsAsDp())
-            .padding(bottom = 0.7f.gridUnitsAsDp()),
+            .padding(bottom = (body * ArticleTypography.PARAGRAPH_SPACING_EM).textDp()),
     ) {
         block.items.forEachIndexed { index, item ->
-            ListItemRow(item, marker = marker(block.ordered, index), indent = 0f, scalePercent)
+            ListItemRow(item, marker = marker(block.ordered, index), indentEm = 0f, scalePercent)
             item.children.forEachIndexed { childIndex, child ->
-                ListItemRow(child, marker = marker(block.ordered, childIndex), indent = 1.2f, scalePercent)
+                ListItemRow(
+                    child,
+                    marker = marker(block.ordered, childIndex),
+                    indentEm = ArticleTypography.LIST_INDENT_EM,
+                    scalePercent,
+                )
             }
         }
     }
@@ -157,16 +179,21 @@ private fun marker(ordered: Boolean, index: Int): String =
     if (ordered) "${index + 1}." else "–"
 
 @Composable
-private fun ListItemRow(item: ListItem, marker: String, indent: Float, scalePercent: Int) {
+private fun ListItemRow(item: ListItem, marker: String, indentEm: Float, scalePercent: Int) {
+    val body = bodySize(scalePercent)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = indent.gridUnitsAsDp(), bottom = 0.15f.gridUnitsAsDp()),
+            .padding(
+                start = (body * indentEm).textDp(),
+                bottom = (body * ArticleTypography.LIST_ITEM_SPACING_EM).textDp(),
+            ),
     ) {
+        // Min-width gutter in ems: wide markers ("10.") push text instead of wrapping.
         Text(
             text = marker,
             style = bodyStyle(ArticleTypography.BODY_EM, scalePercent),
-            modifier = Modifier.width(1f.gridUnitsAsDp()),
+            modifier = Modifier.widthIn(min = (body * ArticleTypography.MARKER_GUTTER_EM).textDp()),
         )
         Text(
             text = annotated(item.spans),
@@ -177,23 +204,25 @@ private fun ListItemRow(item: ListItem, marker: String, indent: Float, scalePerc
 
 @Composable
 private fun BlockquoteView(block: Block.Blockquote, scalePercent: Int) {
+    val body = bodySize(scalePercent)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(androidx.compose.foundation.layout.IntrinsicSize.Min)
+            .height(IntrinsicSize.Min)
             .padding(horizontal = 1f.gridUnitsAsDp())
-            .padding(bottom = 0.7f.gridUnitsAsDp()),
+            .padding(bottom = (body * ArticleTypography.PARAGRAPH_SPACING_EM).textDp()),
     ) {
+        // The May css bar is full-strength ink (`--ink`), not the muted rule color.
         Box(
             modifier = Modifier
                 .width(0.15f.gridUnitsAsDp())
                 .fillMaxHeight()
-                .background(LightThemeTokens.colors.contentSecondary),
+                .background(LightThemeTokens.colors.content),
         )
         Text(
             text = annotated(block.spans),
             style = bodyStyle(ArticleTypography.BODY_EM, scalePercent).copy(fontStyle = FontStyle.Italic),
-            modifier = Modifier.padding(start = 0.7f.gridUnitsAsDp()),
+            modifier = Modifier.padding(start = (body * ArticleTypography.BLOCKQUOTE_INSET_EM).textDp()),
         )
     }
 }

@@ -77,7 +77,9 @@ class ArticleViewModel(
 
     private fun persistScale(value: Int) {
         scalePercent.value = value // immediate: no reload, no wait for disk
-        viewModelScope.launch {
+        // App scope, not viewModelScope: backing out of the screen must not
+        // cancel the write (M5 review finding 4b).
+        WikiGraph.appScope.launch {
             dataStore.edit { it[SCALE_KEY] = value }
         }
     }
