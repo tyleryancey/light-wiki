@@ -129,6 +129,14 @@ Wiki is a single-purpose reference tool. **Not browser-adjacent:** 100% native C
 
 ## Implementation notes
 
+### M5 (2026-07-28)
+
+- `ui/render/ArticleTypography.kt` (pure JVM, TDD): May `article.css` hierarchy as data — base 18sp/1.6, headings 1.25 lh with h2 1.35em · h3 1.15em · h4 1.02em, lead 1.05em, captions 0.85em; A/A scale 80–180 step 10 default 110 with clamped step functions; lead = first Paragraph block. 5 tests.
+- `ui/render/BlockRenderer.kt`: LazyColumn over blocks (keyed by index); AnnotatedString bold/italic spans; h2 hairline from `contentSecondary` via alpha (no color literals); list markers ("–" / "n."), level-2 indent; blockquote left-bar inset (IntrinsicSize.Min). M5 renders text blocks only; Figure/InfoboxCard/SimpleTable/MathImage skipped silently until M6. Styles derive from `LightThemeTokens.typography.paragraph` copies (token font family) with sizes from ArticleTypography.
+- `ArticleScreen`: BlockRenderer body + `LightBottomBar` small-a/large-A `LightBarButton.Text`; `textScalePercent` in `SealedLightContext.dataStore` (`intPreferencesKey("textScalePercent")`); scale updates state first, persists async — **no reload, no scroll jump** (verified on AVD: position held across two A-steps).
+- AVD pass (screenshots in scratchpad): Mercury (element) reads end-to-end — bold lead spans, "Properties" h2 with hairline + "Physical properties" h3 scale; smooth deep scroll; killstart lands on Search (by design); scale persisted across process death (fresh article at 130%).
+- Suite 137 green.
+
 ### M4 (2026-07-28)
 
 - Data layer TDD: DTOs decoded against the real captured fixture JSON (search 20 hits; pageprops disambiguation polarity both ways; parse envelope); `WikiHosts.assertAllowed` (https + two-host, tested incl. `en.wikipedia.org.evil.com` and plain http rejections) runs on every `KtorWikiApi` request; `WikiRepository` LRUs 32/64/16 cache *parsed models* (verified: 1 api call per 2 reads for search/sections/article), parsing on `Dispatchers.Default`. UA `LightWiki/0.1 (+https://github.com/tyleryancey/light-wiki)`. The 3 DTO tests validated against fixtures rather than failing first (declarative shape); the 6 behavior tests were watched RED.
