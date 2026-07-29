@@ -233,7 +233,7 @@ private fun FigureView(block: Block.Figure, scalePercent: Int) {
     if (load is ImageLoad.Failed) return
 
     val body = bodySize(scalePercent)
-    val aspect = if (block.width != null && block.height != null && block.height!! > 0) {
+    val aspect = if (block.width != null && block.width!! > 0 && block.height != null && block.height!! > 0) {
         block.width!!.toFloat() / block.height!!.toFloat()
     } else {
         null
@@ -253,22 +253,26 @@ private fun FigureView(block: Block.Figure, scalePercent: Int) {
                         .aspectRatio(aspect),
                 )
             }
-            is ImageLoad.Ready -> Image(
-                bitmap = load.bitmap,
-                contentDescription = block.caption,
-                contentScale = ContentScale.FillWidth,
-                colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }),
-                modifier = Modifier.fillMaxWidth(),
-            )
+            is ImageLoad.Ready -> {
+                Image(
+                    bitmap = load.bitmap,
+                    contentDescription = block.caption,
+                    contentScale = ContentScale.FillWidth,
+                    colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                // Caption only once the image exists — no transient orphan
+                // caption while loading or during a slow failure (M6 review).
+                block.caption?.let { caption ->
+                    Text(
+                        text = caption,
+                        style = bodyStyle(ArticleTypography.CAPTION_EM, scalePercent)
+                            .copy(color = LightThemeTokens.colors.contentSecondary),
+                        modifier = Modifier.padding(top = 0.3f.gridUnitsAsDp()),
+                    )
+                }
+            }
             is ImageLoad.Failed -> Unit // unreachable (early return)
-        }
-        block.caption?.let { caption ->
-            Text(
-                text = caption,
-                style = bodyStyle(ArticleTypography.CAPTION_EM, scalePercent)
-                    .copy(color = LightThemeTokens.colors.contentSecondary),
-                modifier = Modifier.padding(top = 0.3f.gridUnitsAsDp()),
-            )
         }
     }
 }

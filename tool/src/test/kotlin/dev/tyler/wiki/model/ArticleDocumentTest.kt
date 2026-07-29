@@ -262,6 +262,13 @@ class ArticleDocumentTest {
     }
 
     @Test
+    fun `display-none matching is case-insensitive`() {
+        val doc = extract("""<p>A<span style="Display : None">HIDDEN</span>B</p>""")
+        val para = doc.blocks.single() as Block.Paragraph
+        assertEquals("AB", para.spans.joinToString("") { it.text })
+    }
+
+    @Test
     fun `sub and sup text is preserved as plain text`() {
         val doc = extract("<p>E = mc<sup>2</sup> and H<sub>2</sub>O</p>")
         val para = doc.blocks.single() as Block.Paragraph

@@ -187,10 +187,11 @@ everything else drops silently.*
 7. **Wide tables** → simplified text grid (`Block.SimpleTable`), horizontal
    scroll at render time; no grid-fidelity work in v1.
 8. **Orphan captions** → superseded natively: `Block.Figure` carries
-   dimensions (§4) for placeholder sizing, and a failed image load drops the
-   whole figure at render time — no orphan captions by construction (M6
-   enforces drop-figure-on-failure in `ui/render/Images.kt`; re-cite when it
-   lands).
+   dimensions (§4) for placeholder sizing; `Images.load`
+   (`ui/render/Images.kt`) returns null on any failure, and `FigureView`
+   (`ui/render/BlockRenderer.kt`) drops the whole figure — image and
+   caption — on that null, and renders the caption only once the image is
+   ready, so no orphan caption exists in any state, transient or settled.
 
 ---
 
