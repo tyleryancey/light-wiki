@@ -179,10 +179,10 @@ everything else drops silently.*
    `BitmapFactory` cannot decode. Outcome: display math (`Block.MathImage`)
    is extracted but **not rendered** (`BlockRenderer` skips it); inline math
    still contributes its `alt` text (LaTeX source) to the paragraph. The
-   two-host defense claim stays intact. Rendering display math (PNG variant
-   endpoint + allowlist question, or MathML) → backlog, pending a scope
-   decision (deviates from the 03 §1 frozen table, which listed math
-   fallback images as in-scope).
+   two-host defense claim stays intact. **Decision (Tyler, 2026-07-29):
+   v1 ships with display equations dropped.** Rendering them via the
+   verified PNG variant endpoint (scoped third Wikimedia host + inversion
+   ColorFilter) is backlog item #1, post-approval.
 6. **IPA/pronunciation** → kept as plain text (§9).
 7. **Wide tables** → simplified text grid (`Block.SimpleTable`), horizontal
    scroll at render time; no grid-fidelity work in v1.

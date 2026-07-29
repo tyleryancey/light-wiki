@@ -20,6 +20,7 @@ import com.thelightphone.sdk.LightViewModel
 import com.thelightphone.sdk.SealedLightActivity
 import com.thelightphone.sdk.ui.LightBarButton
 import com.thelightphone.sdk.ui.LightBottomBar
+import com.thelightphone.sdk.ui.LightIcons
 import com.thelightphone.sdk.ui.LightText
 import com.thelightphone.sdk.ui.LightTextVariant
 import com.thelightphone.sdk.ui.LightTheme
@@ -121,6 +122,11 @@ class ArticleScreen(
                     .background(LightThemeTokens.colors.background),
             ) {
                 LightTopBar(
+                    leftButton = LightBarButton.LightIcon(
+                        icon = LightIcons.BACK,
+                        onClick = { goBack() },
+                        contentDescription = "Back",
+                    ),
                     center = LightTopBarCenter.Text(title),
                     modifier = Modifier.padding(bottom = 0.5f.gridUnitsAsDp()),
                 )
