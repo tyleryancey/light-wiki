@@ -50,3 +50,7 @@ bin/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+### Superpowers (agent workflow artifacts — not project docs, keep out of this public repo) ###
+docs/superpowers/
+.superpowers/
