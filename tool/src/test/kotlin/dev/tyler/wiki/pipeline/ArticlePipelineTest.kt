@@ -73,7 +73,7 @@ class ArticlePipelineTest {
 
     @Test
     fun `drops all listed appendix ids`() {
-        for (id in listOf("See_also", "References", "External_links", "Further_reading", "Bibliography")) {
+        for (id in listOf("See_also", "References", "External_links", "Further_reading")) {
             val out = process(
                 """
                 <p>before</p>
@@ -391,5 +391,103 @@ class ArticlePipelineTest {
         assertFalse("SUBSECTION_BODY" in text)
         assertTrue("Next" in text)
         assertTrue("NEXT_BODY" in text)
+    }
+
+    @Test
+    fun `citation and bibliography sections drop`() {
+        for (id in listOf("Citations", "General_and_cited_sources", "Works_cited")) {
+            val html = """
+                <h2 id="Body">Body</h2>
+                <p>Kept.</p>
+                <h2 id="$id">$id</h2>
+                <p>Dropped.</p>
+            """.trimIndent()
+            val text = flatText(process(html))
+            assertFalse("Dropped" in text, "$id is citation apparatus and must drop")
+            assertTrue("Kept" in text, "$id must not take the body with it")
+        }
+    }
+
+    @Test
+    fun `a bare Sources section is kept`() {
+        // enwiki uses "Sources" both as citation apparatus and as a genuine
+        // content heading — Nile#Sources is prose about the river's
+        // headwaters. The id cannot tell the two apart, so Sources stays out
+        // of APPENDIX_IDS: rendering apparatus is recoverable noise, deleting
+        // content is not.
+        val html = """
+            <h2 id="Sources">Sources</h2>
+            <p>The White Nile rises at Lake Victoria.</p>
+        """.trimIndent()
+        val text = flatText(process(html))
+        assertTrue("Lake Victoria" in text, "a Sources section can be article content and must render")
+    }
+
+    @Test
+    fun `a Bibliography section is kept`() {
+        // On biographies, "Bibliography" is the works-list section — the
+        // subject's own books (George Orwell's lists his novels), not
+        // citation apparatus. Same ambiguity rule as Sources: an id that
+        // can name content stays out of APPENDIX_IDS.
+        val html = """
+            <h2 id="Bibliography">Bibliography</h2>
+            <p>Animal Farm, published 1945.</p>
+        """.trimIndent()
+        val text = flatText(process(html))
+        assertTrue("Animal Farm" in text, "a Bibliography section can be the subject's works and must render")
+    }
+
+    @Test
+    fun `appendix drop survives MediaWiki's numeric id de-duplication`() {
+        // MediaWiki suffixes a repeated heading id with _2, _3 …
+        val html = """
+            <h2 id="Body">Body</h2>
+            <p>Kept.</p>
+            <h2 id="References_2">References</h2>
+            <p>Dropped.</p>
+        """.trimIndent()
+        val text = flatText(process(html))
+        assertFalse("Dropped" in text, "a _2-suffixed appendix heading must still drop its section")
+        assertTrue("Kept" in text, "the body section must survive the canonicalisation")
+    }
+
+    @Test
+    fun `numeric id de-duplication also strips on the legacy headline span`() {
+        // Same MediaWiki _2/_3… de-duplication, but on the legacy
+        // <span class="mw-headline"> shape rather than a bare h2 id.
+        val html = """
+            <h2 id="Body">Body</h2>
+            <p>Kept.</p>
+            <h2><span class="mw-headline" id="References_2">References</span></h2>
+            <p>Dropped.</p>
+        """.trimIndent()
+        val text = flatText(process(html))
+        assertFalse("Dropped" in text, "a _2-suffixed legacy headline id must still drop its section")
+        assertTrue("Kept" in text, "the body section must survive the canonicalisation")
+    }
+
+    @Test
+    fun `numeric suffix stripping does not drop a real section ending in a number`() {
+        val html = """
+            <h2 id="Season_2">Season 2</h2>
+            <p>Kept.</p>
+        """.trimIndent()
+        assertTrue("Kept" in flatText(process(html)), "Season_2 strips to Season, not an appendix id")
+    }
+
+    @Test
+    fun `explanatory note sections survive`() {
+        // Both {{efn}} notes and {{reflist}} citations render as ol.references,
+        // so only the heading text distinguishes them — and these are content.
+        for (id in listOf("Notes", "Explanatory_notes")) {
+            val html = """
+                <h2 id="$id">$id</h2>
+                <p>Explanatory prose.</p>
+            """.trimIndent()
+            assertTrue(
+                "Explanatory prose" in flatText(process(html)),
+                "$id holds author-written prose and must NOT be dropped",
+            )
+        }
     }
 }

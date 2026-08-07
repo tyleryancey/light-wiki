@@ -2,8 +2,8 @@
 
 What the article/disambiguation pipeline drops, strips, transforms, or leaves
 out. A living doc — keep it in sync when `ArticlePipeline`, `DisambigParser`,
-`ArticleDocument`, or the renderer change. Successor to the May repo's v3
-(`~/Documents/_archive/lightos/lightwiki/rendering-exclusions.md`, read-only);
+`ArticleDocument`, or the renderer change. Successor to the v3 inventory from
+the May 2026 Phase-1 prototype (a private WebView-era donor, read-only);
 v3's §10 open decisions are resolved in §10 below per `docs/03-v1-spec.md` §1.
 
 - **§1–§4, §7–§8 are code-enforced** (auditable against the cited location).
@@ -29,10 +29,45 @@ the next h2 boundary; `mw-heading3+` subsections inside are not boundaries.*
 | `References` | References |
 | `External_links` | External links |
 | `Further_reading` | Further reading |
-| `Bibliography` | Bibliography |
+| `Citations` | Citations |
+| `General_and_cited_sources` | General and cited sources |
+| `Works_cited` | Works cited |
 
-**Explicitly KEPT**: `Notes`, and every article-specific content section.
-The id is matched on the `<h2>` itself or a nested `span.mw-headline` (legacy shape).
+**Governing rule** (the last three ids landed in v1.1, joining four of
+v1's original five): drop citation and external-link apparatus; **keep**
+any id that can name author-written content. `Notes` and `Explanatory_notes` both
+render as `ol.references` in the parsed HTML — same markup as a citation
+list — so the heading id is the *only* structural signal that distinguishes
+author-written explanatory prose from a reference list, and the section
+*text* is the only way to confirm it (English `Notes` sections hold prose,
+not citations). **Decision (Tyler, 2026-07-30): keep `Notes` and
+`Explanatory_notes` out of `APPENDIX_IDS`, as v1 already shipped.** A v1.1
+fix-round plan had flagged dropping `Notes` as a bug; reading the fixtures
+against that plan showed both ids hold author-written explanatory prose, not
+a citation list, so the ruling kept the existing behavior rather than
+changing it. Each added id was confirmed against this repo's own fixture
+corpus before being added, contents read rather than inferred: `Citations`
+(great-wave, 92 `<li>`/43 `<cite>`; fourier short-form refs),
+`General_and_cited_sources` (27/27), `Works_cited` (list-presidents, 72/72)
+— all apparatus, none prose. Two ids were **removed before release** when
+the pre-release review applied this rule to the wild rather than the
+fixtures: `Sources`, added in v1.1 on fixture evidence (mary-anning,
+23/23), is also a genuine content heading — `Nile#Sources` is the river's
+headwaters section, prose and a map; and `Bibliography`, one of v1's
+original five, is the works-list section on biographies — George Orwell's
+`Bibliography` h2 lists the subject's own books, mid-article, before the
+reference apparatus. One fixture where an id happens to be apparatus does
+not make the id unambiguous; an ambiguous id stays out, because rendering
+apparatus is recoverable noise and deleting content is not.
+
+**Explicitly KEPT**: `Notes`, `Explanatory_notes`, `Sources`, and
+`Bibliography`, plus every article-specific content section.
+The id is matched on the `<h2>` itself or a nested `span.mw-headline` (legacy
+shape), **after** stripping MediaWiki's repeated-heading `_2`/`_3`… numeric
+suffix (`canonicalHeadingId` in `ArticlePipeline`, v1.1) — so a second
+`References` section on the same page still drops. No id in the table above
+ends in a digit, so this canonicalization cannot cause a false match within
+the table itself.
 
 ---
 
@@ -102,7 +137,8 @@ ever executes. Network egress is limited to `en.wikipedia.org` and
 `upload.wikimedia.org`, asserted at both client seams on every request:
 `WikiHosts.assertAllowed` in `data/WikiApi.kt` (API calls) and
 `ui/render/Images.kt` (image fetches). The assertion also refuses non-https
-URLs; it runs in all build types, not just debug.
+URLs and any URL carrying an explicit port (v1.1); it runs
+in all build types, not just debug.
 
 ---
 
@@ -178,11 +214,16 @@ everything else drops silently.*
    on the §6 two-host allowlist, and (b) actual **SVG**, which
    `BitmapFactory` cannot decode. Outcome: display math (`Block.MathImage`)
    is extracted but **not rendered** (`BlockRenderer` skips it); inline math
-   still contributes its `alt` text (LaTeX source) to the paragraph. The
-   two-host defense claim stays intact. **Decision (Tyler, 2026-07-29):
-   v1 ships with display equations dropped.** Rendering them via the
-   verified PNG variant endpoint (scoped third Wikimedia host + inversion
-   ColorFilter) is backlog item #1, post-approval.
+   still contributes its `alt` text (LaTeX source) to the paragraph — except
+   where a paragraph's entire content is one math span, which is promoted to
+   `Block.MathImage` and therefore also drops. The two-host defense claim
+   stays intact. **Decision (Tyler, 2026-07-29): v1 ships with display
+   equations dropped.** Rendering them is backlog item #1, post-approval —
+   but *not* via the `/media/math/render/png/` variant: sampled against this
+   repo's own `fourier-transform` hashes (2026-07-31), that path answers
+   `200 image/png` but returns SVG bytes for **16 of 42** hashes, which
+   `BitmapFactory` cannot decode either. Any backlog path has to
+   rasterize the SVG itself.
 6. **IPA/pronunciation** → kept as plain text (§9).
 7. **Wide tables** → simplified text grid (`Block.SimpleTable`), horizontal
    scroll at render time; no grid-fidelity work in v1.

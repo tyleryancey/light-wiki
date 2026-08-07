@@ -62,6 +62,21 @@ class WikiDataTest {
         assertFailsWith<IllegalArgumentException> { WikiHosts.assertAllowed("https://EN.WIKIPEDIA.ORG/x") }
     }
 
+    @Test
+    fun `explicit port is refused`() {
+        // Image src comes verbatim from page HTML, so the URL shape is
+        // editor-controlled — the host check alone is not the whole claim.
+        assertFailsWith<IllegalArgumentException> {
+            WikiHosts.assertAllowed("https://upload.wikimedia.org:8080/wikipedia/commons/x.jpg")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            WikiHosts.assertAllowed("https://en.wikipedia.org:8443/w/api.php")
+        }
+        // The ordinary forms must still pass.
+        WikiHosts.assertAllowed("https://en.wikipedia.org/w/api.php?action=query")
+        WikiHosts.assertAllowed("https://upload.wikimedia.org/wikipedia/commons/x.jpg")
+    }
+
     // --- Repository over a fake api ---
 
     private class FakeApi : WikiApi {

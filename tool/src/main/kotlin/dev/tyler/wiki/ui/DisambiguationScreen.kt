@@ -10,6 +10,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewModelScope
 import com.thelightphone.sdk.LightScreen
@@ -114,39 +117,50 @@ class DisambiguationScreen(
                         )
                     }
 
-                    is DisambiguationViewModel.Mode.Sections -> LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        m.sections.forEach { section ->
-                            section.heading?.let { heading ->
-                                item {
-                                    LightText(
-                                        text = heading,
-                                        variant = LightTextVariant.Detail,
-                                        lighten = true,
-                                        modifier = Modifier
-                                            .padding(horizontal = 1f.gridUnitsAsDp())
-                                            .padding(top = 1f.gridUnitsAsDp()),
-                                    )
-                                }
-                            }
-                            items(section.entries) { entry ->
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .lightClickable {
-                                            navigateTo({ activity -> ArticleScreen(activity, entry.title) })
-                                        }
-                                        .padding(horizontal = 1f.gridUnitsAsDp())
-                                        .padding(vertical = 0.5f.gridUnitsAsDp()),
-                                ) {
-                                    LightText(text = entry.title, variant = LightTextVariant.Copy)
-                                    entry.description?.let {
+                    is DisambiguationViewModel.Mode.Sections -> {
+                        // One navigation per visit. LightClickable is a bare Modifier.clickable
+                        // with no debounce and Compose dispatches separate pointers to separate
+                        // clickable nodes, so two fingers landing in the same frame would both
+                        // reach navigateTo — which pushes unconditionally. Same guard shape as
+                        // SearchViewModel.select()'s in-flight check.
+                        var picked by remember { mutableStateOf(false) }
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            m.sections.forEach { section ->
+                                section.heading?.let { heading ->
+                                    item {
                                         LightText(
-                                            text = it,
+                                            text = heading,
                                             variant = LightTextVariant.Detail,
                                             lighten = true,
+                                            modifier = Modifier
+                                                .padding(horizontal = 1f.gridUnitsAsDp())
+                                                .padding(top = 1f.gridUnitsAsDp()),
                                         )
+                                    }
+                                }
+                                items(section.entries) { entry ->
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .lightClickable {
+                                                if (!picked) {
+                                                    picked = true
+                                                    navigateTo({ activity -> ArticleScreen(activity, entry.title) })
+                                                }
+                                            }
+                                            .padding(horizontal = 1f.gridUnitsAsDp())
+                                            .padding(vertical = 0.5f.gridUnitsAsDp()),
+                                    ) {
+                                        LightText(text = entry.title, variant = LightTextVariant.Copy)
+                                        entry.description?.let {
+                                            LightText(
+                                                text = it,
+                                                variant = LightTextVariant.Detail,
+                                                lighten = true,
+                                            )
+                                        }
                                     }
                                 }
                             }

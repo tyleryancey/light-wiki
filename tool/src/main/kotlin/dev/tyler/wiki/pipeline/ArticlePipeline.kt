@@ -21,7 +21,22 @@ object ArticlePipeline {
         "References",
         "External_links",
         "Further_reading",
-        "Bibliography",
+        // Measured against this repo's own fixture corpus 2026-07-30, contents
+        // read rather than inferred: Citations (great-wave 92 li / 43 cite;
+        // fourier short-form refs), General_and_cited_sources (27/27),
+        // Works_cited (list-presidents 72/72).
+        // NOT here, deliberately: Notes and Explanatory_notes hold
+        // author-written prose; Sources is a genuine content heading on
+        // river and history articles (Nile#Sources is the headwaters
+        // section); and Bibliography, in v1's drop set, is the works-list
+        // section on biographies (George Orwell's is the subject's own
+        // books) — removed in v1.1. The heading id is the only signal and
+        // the text is the only way to tell apparatus from content, so an
+        // ambiguous id stays out: rendering apparatus is recoverable noise,
+        // deleting content is not.
+        "Citations",
+        "General_and_cited_sources",
+        "Works_cited",
     )
 
     /** Classes whose elements are dropped wholesale (exclusions §2 + galleries per §1-res.4). */
@@ -72,10 +87,22 @@ object ArticlePipeline {
         } else {
             container.children.firstOrNull { it is Element && it.name == "h2" } as Element? ?: return false
         }
-        if (h2.attrs["id"] in APPENDIX_IDS) return true
+        if (canonicalHeadingId(h2.attrs["id"]) in APPENDIX_IDS) return true
         // Legacy shape: id on a nested <span class="mw-headline">.
-        return findFirst(h2) { it.name == "span" && "mw-headline" in it.classes && it.attrs["id"] in APPENDIX_IDS } != null
+        return findFirst(h2) {
+            it.name == "span" && "mw-headline" in it.classes && canonicalHeadingId(it.attrs["id"]) in APPENDIX_IDS
+        } != null
     }
+
+    /**
+     * MediaWiki de-duplicates a repeated heading id by appending `_2`, `_3`…
+     * Strip that before matching, so a second References section still drops.
+     * Safe by construction: a real section like `Season_2` strips to `Season`,
+     * which is not an appendix id.
+     */
+    private fun canonicalHeadingId(id: String?): String? = id?.replace(NUMERIC_ID_SUFFIX, "")
+
+    private val NUMERIC_ID_SUFFIX = Regex("_\\d+$")
 
     // --- Pass 2: links --------------------------------------------------
 

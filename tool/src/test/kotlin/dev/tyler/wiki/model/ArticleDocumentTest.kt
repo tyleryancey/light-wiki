@@ -4,6 +4,7 @@ import dev.tyler.wiki.parser.HtmlTree
 import dev.tyler.wiki.pipeline.ArticlePipeline
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -187,6 +188,58 @@ class ArticleDocumentTest {
         )
     }
 
+    @Test
+    fun `an infobox whose rows cannot be read emits no card at all`() {
+        val html = """
+            <div class="mw-parser-output">
+              <table class="infobox"><caption>Mercury</caption>
+                <tr><th colspan="2">A banner with no value cell</th></tr>
+              </table>
+            </div>
+        """.trimIndent()
+        val doc = ArticleDocument.from(HtmlTree.parse(html))
+        assertTrue(
+            doc.blocks.none { it is Block.InfoboxCard },
+            "a card with no readable rows is chrome with no content — emit nothing",
+        )
+    }
+
+    @Test
+    fun `a table whose labels are plain td cells still yields rows`() {
+        // enwiki's own chembox spells label/value as two <td>s, not <th>+<td>.
+        val html = """
+            <div class="mw-parser-output">
+              <table class="infobox"><caption>Mercury</caption>
+                <tr><td>Signal word</td><td>Danger</td></tr>
+                <tr><td>NFPA 704</td><td>2-0-0</td></tr>
+              </table>
+            </div>
+        """.trimIndent()
+        val doc = ArticleDocument.from(HtmlTree.parse(html))
+        val card = doc.blocks.filterIsInstance<Block.InfoboxCard>().single()
+        assertEquals(2, card.rows.size, "both two-td rows must be read as label/value")
+        assertEquals("Signal word", card.rows[0].label, "first cell is the label")
+    }
+
+    @Test
+    fun `a two-cell data row in a table that has header rows is not misread`() {
+        // The fallback is per TABLE, not per row: a table that uses <th> for its
+        // labels is telling you where its labels are, so a two-cell row inside it
+        // is something else — a data row — and must not become a label/value pair.
+        val html = """
+            <div class="mw-parser-output">
+              <table class="infobox">
+                <tr><th>Density</th><td>13.5 g/cm3</td></tr>
+                <tr><td>1st: 10.4 eV</td><td>2nd: 18.7 eV</td></tr>
+              </table>
+            </div>
+        """.trimIndent()
+        val doc = ArticleDocument.from(HtmlTree.parse(html))
+        val card = doc.blocks.filterIsInstance<Block.InfoboxCard>().single()
+        assertEquals(1, card.rows.size, "only the th+td row is a label/value pair")
+        assertEquals("Density", card.rows[0].label, "the ionization data row must not become a row")
+    }
+
     // --- Tables ---
 
     @Test
@@ -232,6 +285,96 @@ class ArticleDocumentTest {
         )
         val para = doc.blocks.single() as Block.Paragraph
         assertEquals("Where x^2 holds.", para.spans.joinToString("") { it.text })
+    }
+
+    @Test
+    fun `a paragraph that is only a display equation becomes a MathImage`() {
+        val html = """
+            <div class="mw-parser-output">
+              <p><span class="mwe-math-element"><img class="mwe-math-fallback-image-display"
+                 src="https://wikimedia.org/api/rest_v1/media/math/render/svg/abc" alt="E = mc^2"></span></p>
+            </div>
+        """.trimIndent()
+        val doc = ArticleDocument.from(HtmlTree.parse(html))
+        assertTrue(doc.blocks.any { it is Block.MathImage }, "a solo display equation must become a MathImage")
+        assertFalse(
+            doc.blocks.filterIsInstance<Block.Paragraph>().any { p -> p.spans.any { "E = mc^2" in it.text } },
+            "its LaTeX must not also appear as body copy",
+        )
+    }
+
+    @Test
+    fun `a paragraph mixing prose and a display equation splits in document order`() {
+        val html = """
+            <div class="mw-parser-output">
+              <p>Before. <span class="mwe-math-element"><img class="mwe-math-fallback-image-display"
+                 src="https://wikimedia.org/api/rest_v1/media/math/render/svg/abc" alt="E = mc^2"></span> After.</p>
+            </div>
+        """.trimIndent()
+        val doc = ArticleDocument.from(HtmlTree.parse(html))
+        val kinds = doc.blocks.map { it::class.simpleName }
+        assertEquals(
+            listOf("Paragraph", "MathImage", "Paragraph"),
+            kinds,
+            "prose, equation, prose — in document order",
+        )
+    }
+
+    @Test
+    fun `display math inside a list item drops rather than leaking LaTeX`() {
+        val html = """
+            <div class="mw-parser-output">
+              <ul><li>Item <span class="mwe-math-element"><img class="mwe-math-fallback-image-display"
+                 src="https://wikimedia.org/api/rest_v1/media/math/render/svg/abc" alt="x^2"></span></li></ul>
+            </div>
+        """.trimIndent()
+        val doc = ArticleDocument.from(HtmlTree.parse(html))
+        val text = doc.blocks.filterIsInstance<Block.ListBlock>()
+            .flatMap { it.items }.flatMap { it.spans }.joinToString("") { it.text }
+        assertFalse("x^2" in text, "display math in a list item must not leak as text")
+    }
+
+    @Test
+    fun `display math inside a blockquote drops rather than leaking LaTeX`() {
+        val html = """
+            <div class="mw-parser-output">
+              <blockquote>Item <span class="mwe-math-element"><img class="mwe-math-fallback-image-display"
+                 src="https://wikimedia.org/api/rest_v1/media/math/render/svg/abc" alt="x^2"></span></blockquote>
+            </div>
+        """.trimIndent()
+        val doc = ArticleDocument.from(HtmlTree.parse(html))
+        val text = doc.blocks.filterIsInstance<Block.Blockquote>().flatMap { it.spans }.joinToString("") { it.text }
+        assertFalse("x^2" in text, "display math in a blockquote must not leak as text")
+    }
+
+    @Test
+    fun `display math wrapped inside an inline element drops from a paragraph`() {
+        // Templates can emit the math span one wrapper deep, where the
+        // paragraph split loop (which walks only direct children) never sees it.
+        val html = """
+            <div class="mw-parser-output">
+              <p><span><span class="mwe-math-element"><img class="mwe-math-fallback-image-display"
+                 src="https://wikimedia.org/api/rest_v1/media/math/render/svg/abc" alt="x^2"></span></span> follows from the axiom.</p>
+            </div>
+        """.trimIndent()
+        val doc = ArticleDocument.from(HtmlTree.parse(html))
+        val text = doc.blocks.filterIsInstance<Block.Paragraph>()
+            .flatMap { it.spans }.joinToString("") { it.text }
+        assertFalse("x^2" in text, "display math wrapped one level deep must not leak as body text")
+        assertTrue("follows from the axiom" in text, "prose around the wrapped equation must survive")
+    }
+
+    @Test
+    fun `inline math still contributes its alt text`() {
+        val html = """
+            <div class="mw-parser-output">
+              <p>The value <span class="mwe-math-element"><img class="mwe-math-fallback-image-inline"
+                 src="https://wikimedia.org/api/rest_v1/media/math/render/svg/abc" alt="n"></span> is small.</p>
+            </div>
+        """.trimIndent()
+        val doc = ArticleDocument.from(HtmlTree.parse(html))
+        val text = doc.blocks.filterIsInstance<Block.Paragraph>().flatMap { it.spans }.joinToString("") { it.text }
+        assertTrue("n" in text, "inline math keeps contributing alt text — only DISPLAY math is promoted")
     }
 
     // --- Unknowns & containers ---

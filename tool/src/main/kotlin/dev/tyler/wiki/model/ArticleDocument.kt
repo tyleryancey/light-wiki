@@ -74,23 +74,26 @@ data class ArticleDocument(val blocks: List<Block>) {
                             if (text.isNotEmpty()) out.add(Block.Heading(h.name[1].digitToInt(), text))
                         }
                     }
-                    el.name == "p" -> {
-                        val spans = inlineSpans(el)
-                        if (spans.isNotEmpty()) out.add(Block.Paragraph(spans))
-                    }
+                    el.name == "p" -> extractParagraph(el, out)
                     el.name == "ul" || el.name == "ol" -> {
                         val items = listItems(el, level = 1)
                         if (items.isNotEmpty()) out.add(Block.ListBlock(el.name == "ol", items))
                     }
                     el.name == "blockquote" -> {
-                        val spans = inlineSpans(el)
+                        val spans = inlineSpans(el, dropDisplayMath = true)
                         if (spans.isNotEmpty()) out.add(Block.Blockquote(spans))
                     }
                     el.name == "figure" -> extractFigure(el)?.let(out::add)
-                    el.name == "table" && "infobox" in el.classes -> out.add(extractInfobox(el))
+                    // Numbered-equation tables (the equation-box idiom) hold
+                    // one display equation plus "(Eq.N)" chrome — the math
+                    // comes out, the table does not. Must precede the
+                    // generic table branch so these never reach
+                    // extractSimpleTable.
+                    el.name == "table" && "numblk" in el.classes -> extractMathWithin(el, out)
+                    el.name == "table" && "infobox" in el.classes -> extractInfobox(el)?.let(out::add)
                     el.name == "table" -> extractSimpleTable(el)?.let(out::add)
                     el.name == "span" && "mwe-math-element" in el.classes -> {
-                        mathSrc(el)?.let { out.add(Block.MathImage(it)) }
+                        extractMath(el)?.let(out::add)
                     }
                     el.name in TRANSPARENT_CONTAINERS -> extractBlocks(el.children, out, depth + 1)
                     // else: unknown block — dropped silently.
@@ -104,7 +107,7 @@ data class ArticleDocument(val blocks: List<Block>) {
             val items = ArrayList<ListItem>()
             for (child in list.children) {
                 if (child !is Element || child.name != "li") continue
-                val spans = inlineSpans(child, excludeNestedLists = true)
+                val spans = inlineSpans(child, excludeNestedLists = true, dropDisplayMath = true)
                 val children = if (level == 1) {
                     // Level 2 collects the li's nested lists; anything deeper
                     // flattens into the same level-2 run.
@@ -134,7 +137,7 @@ data class ArticleDocument(val blocks: List<Block>) {
                 if (child.name == "ul" || child.name == "ol") {
                     for (grand in child.children) {
                         if (grand is Element && grand.name == "li") {
-                            val spans = inlineSpans(grand, excludeNestedLists = true)
+                            val spans = inlineSpans(grand, excludeNestedLists = true, dropDisplayMath = true)
                             if (spans.isNotEmpty()) out.add(ListItem(spans))
                             collectNestedItems(grand, out, depth + 1)
                         }
@@ -161,11 +164,36 @@ data class ArticleDocument(val blocks: List<Block>) {
             )
         }
 
-        private fun extractInfobox(table: Element): Block.InfoboxCard {
+        private fun extractInfobox(table: Element): Block.InfoboxCard? {
             val title = findFirst(table) { it.name == "caption" }
                 ?.let { inlineText(it).takeIf(String::isNotEmpty) }
+            val trs = tableRows(table)
+
+            // enwiki spelling (and most wikis): <th scope="row"> label,
+            // <td> value. Tried first, over the WHOLE table.
+            val headerRows = extractHeaderLabelRows(trs)
+
+            // Some wikis (e.g. de's Chemiebox) spell the identical
+            // label/value row shape with two plain <td>s instead of
+            // <th>+<td> -- a row is still exactly one label and one value
+            // either way. But this is a fallback for tables that have NO
+            // <th> labels at all, not a supplement to tables that do: a
+            // table that uses <th> for its labels is telling you where its
+            // labels are, and a two-cell row inside such a table is
+            // something else -- a data row, e.g. fr-mercure-chimie's
+            // ionization-energy rows ("1re : 10 437,5 eV" / "2e : 18 756,8
+            // eV", neither cell a label) -- that must not be reinterpreted.
+            // Scoped per table, not per row: only used when [headerRows]
+            // is empty for the table as a whole.
+            val rows = headerRows.ifEmpty { extractTwoTdRows(trs) }
+
+            if (rows.isEmpty()) return null
+            return Block.InfoboxCard(title, rows)
+        }
+
+        private fun extractHeaderLabelRows(trs: List<Element>): List<InfoboxRow> {
             val rows = ArrayList<InfoboxRow>()
-            for (tr in tableRows(table)) {
+            for (tr in trs) {
                 val th = tr.children.firstOrNull { it is Element && it.name == "th" } as Element?
                 val td = tr.children.firstOrNull { it is Element && it.name == "td" } as Element?
                 if (th != null && td != null) {
@@ -174,7 +202,20 @@ data class ArticleDocument(val blocks: List<Block>) {
                     if (label.isNotEmpty() && value.isNotEmpty()) rows.add(InfoboxRow(label, value))
                 }
             }
-            return Block.InfoboxCard(title, rows)
+            return rows
+        }
+
+        /** Only fire on EXACTLY two `<td>` children: a third cell makes it a data row, not a label/value pair. */
+        private fun extractTwoTdRows(trs: List<Element>): List<InfoboxRow> {
+            val rows = ArrayList<InfoboxRow>()
+            for (tr in trs) {
+                val tds = tr.children.filterIsInstance<Element>().filter { it.name == "td" }
+                if (tds.size != 2) continue
+                val label = inlineText(tds[0])
+                val value = inlineText(tds[1])
+                if (label.isNotEmpty() && value.isNotEmpty()) rows.add(InfoboxRow(label, value))
+            }
+            return rows
         }
 
         private fun extractSimpleTable(table: Element): Block.SimpleTable? {
@@ -214,6 +255,79 @@ data class ArticleDocument(val blocks: List<Block>) {
         private fun mathSrc(mathSpan: Element): String? =
             findFirst(mathSpan) { it.name == "img" }?.attrs?.get("src")?.takeIf { it.isNotBlank() }
 
+        /** A math span's [Block.MathImage], if it carries a usable image src. */
+        private fun extractMath(span: Element): Block.MathImage? = mathSrc(span)?.let { Block.MathImage(it) }
+
+        /**
+         * A `<p>` in a math-bearing article is not always one paragraph: display
+         * equations live inside paragraphs — solo (often carrying the -inline
+         * class) or mixed with prose. Solo math promotes to one MathImage; a
+         * mixed paragraph splits on its display-class spans, prose segments
+         * becoming Paragraphs and each display span a MathImage, in document
+         * order. Inline-class math in prose keeps contributing alt text, as ever.
+         */
+        private fun extractParagraph(p: Element, out: MutableList<Block>) {
+            val solo = soloMathSpan(p)
+            if (solo != null) {
+                extractMath(solo)?.let(out::add)
+                return
+            }
+            val segment = ArrayList<HtmlNode>()
+            fun flush() {
+                if (segment.isEmpty()) return
+                // The split loop above sees only direct children; a display
+                // span nested inside any inline wrapper lands in the segment
+                // and must still drop rather than leak its LaTeX alt text.
+                val spans = inlineSpans(segment, dropDisplayMath = true)
+                if (spans.isNotEmpty()) out.add(Block.Paragraph(spans))
+                segment.clear()
+            }
+            for (child in p.children) {
+                if (child is Element && child.name == "span" &&
+                    "mwe-math-element" in child.classes && isDisplayMath(child)
+                ) {
+                    flush()
+                    extractMath(child)?.let(out::add)
+                } else {
+                    segment.add(child)
+                }
+            }
+            flush()
+        }
+
+        /** The single math span if [p]'s content is exactly that span plus blank text. */
+        private fun soloMathSpan(p: Element): Element? {
+            var span: Element? = null
+            for (child in p.children) {
+                when (child) {
+                    is TextNode -> if (child.text.isNotBlank()) return null
+                    is Element -> {
+                        if (child.name == "span" && "mwe-math-element" in child.classes && span == null) {
+                            span = child
+                        } else {
+                            return null
+                        }
+                    }
+                }
+            }
+            return span
+        }
+
+        /** Every math span under [root] (document order, iterative) as MathImage blocks. */
+        private fun extractMathWithin(root: Element, out: MutableList<Block>) {
+            val stack = ArrayDeque<HtmlNode>()
+            for (i in root.children.indices.reversed()) stack.addLast(root.children[i])
+            while (stack.isNotEmpty()) {
+                val n = stack.removeLast()
+                if (n !is Element) continue
+                if (n.name == "span" && "mwe-math-element" in n.classes) {
+                    extractMath(n)?.let(out::add)
+                    continue // never descend into a math span
+                }
+                for (i in n.children.indices.reversed()) stack.addLast(n.children[i])
+            }
+        }
+
         // --- Inline spans ---
 
         private class RawPiece(val text: String, val bold: Boolean, val italic: Boolean)
@@ -224,8 +338,24 @@ data class ArticleDocument(val blocks: List<Block>) {
          * Collects styled text pieces under [root] in document order —
          * iterative, with bold/italic state carried on the stack. Inline math
          * contributes its alt text; stray inline images contribute nothing.
+         * [dropDisplayMath] drops display-class math spans instead: list
+         * items, blockquotes, and paragraph prose segments have no
+         * inline-block slot to promote a MathImage into, so display math
+         * there must not leak its LaTeX alt text either. Inline-class math
+         * is unaffected.
          */
-        private fun inlineSpans(root: Element, excludeNestedLists: Boolean = false): List<InlineSpan> {
+        private fun inlineSpans(
+            root: Element,
+            excludeNestedLists: Boolean = false,
+            dropDisplayMath: Boolean = false,
+        ): List<InlineSpan> = inlineSpans(root.children, excludeNestedLists, dropDisplayMath)
+
+        /** [inlineSpans] over an explicit node list — lets a caller extract a segment of a parent's children. */
+        private fun inlineSpans(
+            nodes: List<HtmlNode>,
+            excludeNestedLists: Boolean = false,
+            dropDisplayMath: Boolean = false,
+        ): List<InlineSpan> {
             val pieces = ArrayList<RawPiece>()
             val stack = ArrayDeque<Frame>()
 
@@ -235,7 +365,9 @@ data class ArticleDocument(val blocks: List<Block>) {
                 }
             }
 
-            pushChildren(root, bold = false, italic = false)
+            for (i in nodes.indices.reversed()) {
+                stack.addLast(Frame(nodes[i], bold = false, italic = false))
+            }
             while (stack.isNotEmpty()) {
                 val frame = stack.removeLast()
                 when (val n = frame.node) {
@@ -250,8 +382,10 @@ data class ArticleDocument(val blocks: List<Block>) {
                             n.name == "i" || n.name == "em" ->
                                 pushChildren(n, bold = frame.bold, italic = true)
                             n.name == "span" && "mwe-math-element" in n.classes -> {
-                                val alt = findFirst(n) { it.name == "img" }?.attrs?.get("alt")
-                                if (!alt.isNullOrBlank()) pieces.add(RawPiece(alt, frame.bold, frame.italic))
+                                if (!(dropDisplayMath && isDisplayMath(n))) {
+                                    val alt = findFirst(n) { it.name == "img" }?.attrs?.get("alt")
+                                    if (!alt.isNullOrBlank()) pieces.add(RawPiece(alt, frame.bold, frame.italic))
+                                }
                             }
                             n.name == "img" -> {} // stray inline image: contributes nothing
                             n.name == "br" -> pieces.add(RawPiece(" ", frame.bold, frame.italic))
@@ -263,6 +397,10 @@ data class ArticleDocument(val blocks: List<Block>) {
             }
             return mergeAndClean(pieces)
         }
+
+        /** True if [mathSpan]'s fallback image carries the display (not inline) class. */
+        private fun isDisplayMath(mathSpan: Element): Boolean =
+            findFirst(mathSpan) { it.name == "img" && "mwe-math-fallback-image-display" in it.classes } != null
 
         private val WHITESPACE_RUN = Regex("[ \t\n\r]+")
 

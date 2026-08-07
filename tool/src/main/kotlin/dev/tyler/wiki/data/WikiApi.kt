@@ -56,6 +56,7 @@ object WikiHosts {
     fun assertAllowed(url: String) {
         val uri = java.net.URI(url)
         require(uri.scheme == "https") { "non-https request refused: $url" }
+        require(uri.port == -1) { "explicit port refused: $url" }
         require(uri.host in ALLOWED) { "host not on the two-host allowlist: $url" }
     }
 }

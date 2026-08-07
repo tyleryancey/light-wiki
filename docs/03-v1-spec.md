@@ -93,7 +93,7 @@ Base `https://en.wikipedia.org/w/api.php`, `formatversion=2`, GET only (May reci
 2. disambiguation: `action=query&prop=pageprops&ppprop=disambiguation&redirects=1&titles=<t>`
 3. article: `action=parse&prop=text&redirects=1&page=<t>` (legacy parser output — D5 stands for v1; Parsoid remains a someday question)
 
-Plus image GETs to `upload.wikimedia.org` only (rewritten protocol-relative srcs — `HtmlProcessor.fixImages` semantics). Descriptive User-Agent per Wikimedia etiquette (D9), pointing at the real repo once it exists — never the phantom `…/lightwiki` URL (02 §4.2). No other host, ever; a debug-build assertion enforcing the two-host allowlist at the client seam is cheap and makes the defense claim mechanical.
+Plus image GETs to `upload.wikimedia.org` only (rewritten protocol-relative srcs — `HtmlProcessor.fixImages` semantics). Descriptive User-Agent per Wikimedia etiquette (D9), pointing at the real repo once it exists — never the phantom `…/lightwiki` URL (02 §4.2). No other host, ever; `WikiHosts.assertAllowed` enforces the two-host allowlist at both client seams in every build type, not just debug — cheap, and it makes the defense claim mechanical (there is no `BuildConfig`/`DEBUG` guard anywhere in `tool/src/main`).
 
 ## 5. Permissions and `lighttool.toml`
 
