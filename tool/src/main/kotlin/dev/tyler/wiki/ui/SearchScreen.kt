@@ -80,8 +80,7 @@ class SearchViewModel : LightViewModel<Unit>() {
         val q = text.toString().trim()
         if (q.isEmpty()) {
             query.value = ""
-            settled = Mode.Idle
-            mode.value = Mode.Idle
+            settle(Mode.Idle)
             return
         }
         query.value = q
@@ -134,8 +133,7 @@ class SearchViewModel : LightViewModel<Unit>() {
         if (mode.value is Mode.Loading) return // don't yank state mid-flight
         navTarget.value = null
         query.value = ""
-        settled = Mode.Idle
-        mode.value = Mode.Idle
+        settle(Mode.Idle)
     }
 }
 
@@ -194,46 +192,19 @@ class SearchScreen(sealedActivity: SealedLightActivity) :
                     )
 
                     is SearchViewModel.Mode.Idle -> SearchFrame(query) {
-                        LightText(
-                            text = "Look something up on Wikipedia.",
-                            variant = LightTextVariant.Copy,
-                            lighten = true,
-                            modifier = Modifier.padding(horizontal = 1f.gridUnitsAsDp()),
-                        )
+                        StatusLine("Look something up on Wikipedia.")
                     }
 
                     is SearchViewModel.Mode.Loading -> SearchFrame(query) {
-                        LightText(
-                            text = "Searching…",
-                            variant = LightTextVariant.Copy,
-                            lighten = true,
-                            modifier = Modifier.padding(horizontal = 1f.gridUnitsAsDp()),
-                        )
+                        StatusLine("Searching…")
                     }
 
                     is SearchViewModel.Mode.Empty -> SearchFrame(query) {
-                        LightText(
-                            text = "No articles found.",
-                            variant = LightTextVariant.Copy,
-                            lighten = true,
-                            modifier = Modifier.padding(horizontal = 1f.gridUnitsAsDp()),
-                        )
+                        StatusLine("No articles found.")
                     }
 
                     is SearchViewModel.Mode.Error -> SearchFrame(query) {
-                        LightText(
-                            text = m.message,
-                            variant = LightTextVariant.Copy,
-                            modifier = Modifier.padding(horizontal = 1f.gridUnitsAsDp()),
-                        )
-                        LightText(
-                            text = "RETRY",
-                            variant = LightTextVariant.Detail,
-                            modifier = Modifier
-                                .padding(horizontal = 1f.gridUnitsAsDp())
-                                .padding(top = 1f.gridUnitsAsDp())
-                                .lightClickable { viewModel.retry() },
-                        )
+                        ErrorRetry(m.message) { viewModel.retry() }
                     }
 
                     is SearchViewModel.Mode.Results -> SearchFrame(query) {

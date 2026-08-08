@@ -134,11 +134,15 @@ cannot occur by construction (§10.1).
 
 Rendering is native Compose over `ArticleDocument`; no HTML, CSS, or script
 ever executes. Network egress is limited to `en.wikipedia.org` and
-`upload.wikimedia.org`, asserted at both client seams on every request:
-`WikiHosts.assertAllowed` in `data/WikiApi.kt` (API calls) and
-`ui/render/Images.kt` (image fetches). The assertion also refuses non-https
-URLs and any URL carrying an explicit port (v1.1); it runs
-in all build types, not just debug.
+`upload.wikimedia.org`, and every request rides one shared OkHttp client
+(`WikiHttp` in `data/WikiApi.kt`) whose interceptors assert the allowlist
+and set the User-Agent — as an application interceptor (fails before any
+connection) and again as a network interceptor, so every redirect hop
+OkHttp follows is asserted too, never silently followed off-list. The API
+and image call sites additionally call `WikiHosts.assertAllowed` directly
+as defense-in-depth. The assertion also refuses non-https URLs and any URL
+carrying an explicit port (v1.1); it runs in all build types, not just
+debug.
 
 ---
 

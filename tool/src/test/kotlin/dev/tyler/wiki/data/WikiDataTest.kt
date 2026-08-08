@@ -137,6 +137,17 @@ class WikiDataTest {
     }
 
     @Test
+    fun `isDisambiguation is cached per title`() = runBlocking {
+        val api = FakeApi()
+        val repo = WikiRepository(api)
+        repo.isDisambiguation("Mercury")
+        repo.isDisambiguation("Mercury")
+        assertEquals(1, api.propsCalls, "second identical lookup served from cache")
+        repo.isDisambiguation("Tin")
+        assertEquals(2, api.propsCalls)
+    }
+
+    @Test
     fun `article parses through pipeline and extraction and is cached`() = runBlocking {
         val api = FakeApi()
         val repo = WikiRepository(api)

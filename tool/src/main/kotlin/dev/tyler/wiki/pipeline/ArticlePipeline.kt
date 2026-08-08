@@ -3,11 +3,14 @@ package dev.tyler.wiki.pipeline
 import dev.tyler.wiki.parser.HtmlNode
 import dev.tyler.wiki.parser.HtmlNode.Element
 import dev.tyler.wiki.parser.HtmlNode.TextNode
+import dev.tyler.wiki.parser.HtmlNodes
 
 /**
  * Tree→tree transforms over parsed `action=parse&prop=text` output, in the
  * May pipeline order: drop appendix → strip links → fix images → strip
- * clutter → reflow infobox. Contract: `rendering-exclusions.md` (v4).
+ * clutter → reflow infobox. Passes 2-4 execute fused in one rebuild
+ * ([fusedLocalPasses], equivalence-tested against the sequential passes).
+ * Contract: `rendering-exclusions.md` (v4).
  *
  * All passes are depth-capped (MAX_DEPTH): content nested absurdly deep is
  * dropped rather than recursed into — real article trees are ~30 levels.
@@ -56,11 +59,11 @@ object ArticlePipeline {
     )
 
     fun process(root: Element): Element =
-        reflowInfobox(stripClutter(fixImages(stripLinks(dropAppendixSections(root)))))
+        reflowInfobox(fusedLocalPasses(dropAppendixSections(root)))
 
     // --- Pass 1: appendix sections -------------------------------------
 
-    private fun dropAppendixSections(root: Element): Element =
+    internal fun dropAppendixSections(root: Element): Element =
         rebuild(root, 0) { el, depth, recurse ->
             val kept = ArrayList<HtmlNode>(el.children.size)
             var dropping = false
@@ -74,22 +77,15 @@ object ArticlePipeline {
             el.copy(children = kept.map { recurse(it, depth + 1) })
         }
 
-    /** Bare `<h2>` or `<div class="mw-heading2">` wrapping one — a top-level section boundary. */
-    private fun isHeading2Container(el: Element): Boolean {
-        if (el.name == "h2") return true
-        return el.name == "div" && "mw-heading2" in el.classes &&
-            el.children.any { it is Element && it.name == "h2" }
-    }
+    /** Bare `<h2>` or `<div class="mw-heading…">` wrapping one — a top-level section boundary. */
+    private fun isHeading2Container(el: Element): Boolean =
+        HtmlNodes.headingOf(el)?.name == "h2"
 
     private fun isAppendixHeading(container: Element): Boolean {
-        val h2 = if (container.name == "h2") {
-            container
-        } else {
-            container.children.firstOrNull { it is Element && it.name == "h2" } as Element? ?: return false
-        }
+        val h2 = HtmlNodes.headingOf(container)?.takeIf { it.name == "h2" } ?: return false
         if (canonicalHeadingId(h2.attrs["id"]) in APPENDIX_IDS) return true
         // Legacy shape: id on a nested <span class="mw-headline">.
-        return findFirst(h2) {
+        return HtmlNodes.findFirst(h2) {
             it.name == "span" && "mw-headline" in it.classes && canonicalHeadingId(it.attrs["id"]) in APPENDIX_IDS
         } != null
     }
@@ -104,9 +100,16 @@ object ArticlePipeline {
 
     private val NUMERIC_ID_SUFFIX = Regex("_\\d+$")
 
-    // --- Pass 2: links --------------------------------------------------
+    // --- Passes 2-4: links, images, clutter ------------------------------
+    //
+    // The three passes below are each a purely local per-child transform, so
+    // process() runs them FUSED in one rebuild (fusedLocalPasses) instead of
+    // materializing two intermediate whole trees per article. They remain
+    // here, internal, as the executable specification of the donor pass
+    // order — FusionEquivalenceTest holds the fused pass equal to their
+    // sequential composition on every fixture article.
 
-    private fun stripLinks(root: Element): Element =
+    internal fun stripLinks(root: Element): Element =
         rebuild(root, 0) { el, depth, recurse ->
             el.copy(
                 children = el.children.flatMap { child ->
@@ -120,15 +123,13 @@ object ArticlePipeline {
             )
         }
 
-    // --- Pass 3: images -------------------------------------------------
-
-    private fun fixImages(root: Element): Element =
+    internal fun fixImages(root: Element): Element =
         rebuild(root, 0) { el, depth, recurse ->
             el.copy(
                 children = el.children.mapNotNull { child ->
                     when {
                         child is Element && child.name == "noscript" ->
-                            findFirst(child) { it.name == "img" }?.let { fixImg(it) } // promote or drop
+                            HtmlNodes.findFirst(child) { it.name == "img" }?.let { fixImg(it) } // promote or drop
                         child is Element && child.name == "img" -> fixImg(child)
                         else -> recurse(child, depth + 1)
                     }
@@ -146,9 +147,7 @@ object ArticlePipeline {
         return img.copy(attrs = attrs)
     }
 
-    // --- Pass 4: clutter ------------------------------------------------
-
-    private fun stripClutter(root: Element): Element =
+    internal fun stripClutter(root: Element): Element =
         rebuild(root, 0) { el, depth, recurse ->
             el.copy(
                 children = el.children.mapNotNull { child ->
@@ -163,11 +162,50 @@ object ArticlePipeline {
         return el.name == "sup" && "reference" in classes
     }
 
+    /**
+     * Passes 2-4 applied per node in pass order: anchor unwrap first (so an
+     * anchor's contents surface at this level exactly as the link pass left
+     * them), then image promotion/fixing, then the clutter drop — each rule
+     * consulted per child just as the sequential fns consult it, including
+     * the promoted-image-then-clutter-check ordering. Equivalence holds for
+     * any tree within MAX_DEPTH; past the cap an element keeps its identity
+     * but loses its children, mirroring [rebuild], with two knowing
+     * approximations on such pathological trees (real articles nest ~30):
+     * unwrapped anchors count as a level exactly as the sequential link
+     * pass counted them, and a noscript's image search is not
+     * depth-truncated first, so the fused pass can keep an image the
+     * sequential chain would have discarded.
+     */
+    internal fun fusedLocalPasses(root: Element): Element =
+        root.copy(children = fusedChildren(root.children, 1))
+
+    private fun fusedChildren(children: List<HtmlNode>, depth: Int): List<HtmlNode> {
+        val out = ArrayList<HtmlNode>(children.size)
+        for (child in children) {
+            when {
+                child !is Element -> out.add(child)
+                child.name == "a" -> {
+                    if (depth <= MAX_DEPTH) out.addAll(fusedChildren(child.children, depth + 1))
+                }
+                child.name == "noscript" -> if (depth <= MAX_DEPTH) {
+                    HtmlNodes.findFirst(child) { it.name == "img" }?.let(::fixImg)
+                        ?.takeUnless(::isClutter)?.let(out::add)
+                }
+                child.name == "img" -> if (!isClutter(child)) out.add(fixImg(child))
+                isClutter(child) -> {}
+                depth > MAX_DEPTH -> out.add(child.copy(children = emptyList()))
+                else -> out.add(child.copy(children = fusedChildren(child.children, depth + 1)))
+            }
+        }
+        return out
+    }
+
     // --- Pass 5: infobox reflow ----------------------------------------
 
     private fun reflowInfobox(root: Element): Element {
-        val infobox = findFirst(root) { it.name == "table" && "infobox" in it.classes } ?: return root
-        val container = findFirst(root) { "mw-parser-output" in it.classes } ?: root
+        val infobox = HtmlNodes.findFirst(root, includeSelf = true) { it.name == "table" && "infobox" in it.classes }
+            ?: return root
+        val container = HtmlNodes.contentRoot(root)
         val lead = container.children.firstOrNull {
             it is Element && it.name == "p" && hasNonBlankText(it)
         } as Element? ?: return root
@@ -220,17 +258,4 @@ object ArticlePipeline {
         return fn(root, depth, recurse)
     }
 
-    /** First element (document order, iterative) satisfying [predicate], self included. */
-    private fun findFirst(root: Element, predicate: (Element) -> Boolean): Element? {
-        val stack = ArrayDeque<HtmlNode>()
-        stack.addLast(root)
-        while (stack.isNotEmpty()) {
-            val n = stack.removeLast()
-            if (n is Element) {
-                if (predicate(n)) return n
-                for (i in n.children.indices.reversed()) stack.addLast(n.children[i])
-            }
-        }
-        return null
-    }
 }

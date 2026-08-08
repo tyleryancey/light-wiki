@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -61,25 +61,62 @@ fun BlockRenderer(
     listState: LazyListState = rememberLazyListState(),
 ) {
     val leadIndex = remember(blocks) { ArticleTypography.leadIndex(blocks) }
+    // Big lists expand to one lazy item per top-level list item, so an
+    // outline article's multi-hundred-item lists compose as they scroll into
+    // view instead of building hundreds of Texts in a single frame. Tables
+    // deliberately stay whole: their rows share one horizontal scroll, and
+    // lazily-composed rows of unequal width would fight over the shared
+    // ScrollState's maxValue, clamping the offset mid-scroll.
+    val items = remember(blocks) { flatten(blocks) }
     LazyColumn(
         state = listState,
         modifier = modifier,
     ) {
-        itemsIndexed(blocks, key = { index, _ -> index }) { index, block ->
-            when (block) {
-                is Block.Heading -> HeadingBlock(block, scalePercent)
-                is Block.Paragraph -> ParagraphBlock(block, index == leadIndex, scalePercent)
-                is Block.ListBlock -> ListBlockView(block, scalePercent)
-                is Block.Blockquote -> BlockquoteView(block, scalePercent)
-                is Block.Figure -> FigureView(block, scalePercent)
-                is Block.InfoboxCard -> InfoboxCardView(block, scalePercent)
-                is Block.SimpleTable -> SimpleTableView(block, scalePercent)
-                // MathImage: unrenderable in v1 — the fallback images are SVG
-                // (BitmapFactory cannot decode) on a third host (wikimedia.org,
-                // not on the two-host allowlist). Display math drops; inline
-                // math already survives as alt text. See exclusions §10.5.
-                else -> Unit
+        items(items, key = { it.key }) { item ->
+            when (item) {
+                is RenderItem.Whole -> when (val block = item.block) {
+                    is Block.Heading -> HeadingBlock(block, scalePercent)
+                    is Block.Paragraph -> ParagraphBlock(block, item.blockIndex == leadIndex, scalePercent)
+                    is Block.Blockquote -> BlockquoteView(block, scalePercent)
+                    is Block.Figure -> FigureView(block, scalePercent)
+                    is Block.InfoboxCard -> InfoboxCardView(block, scalePercent)
+                    is Block.SimpleTable -> SimpleTableView(block, scalePercent)
+                    // MathImage: unrenderable in v1 — the fallback images are SVG
+                    // (BitmapFactory cannot decode) on a third host (wikimedia.org,
+                    // not on the two-host allowlist). Display math drops; inline
+                    // math already survives as alt text. See exclusions §10.5.
+                    else -> Unit
+                }
+                is RenderItem.ListRow -> ListRowView(
+                    list = item.list,
+                    index = item.item,
+                    scalePercent = scalePercent,
+                    lastInList = item.item == item.list.items.lastIndex,
+                )
             }
+        }
+    }
+}
+
+/** One LazyColumn item: a whole block, or one row of a list. */
+private sealed interface RenderItem {
+    val key: String
+
+    data class Whole(val blockIndex: Int, val block: Block) : RenderItem {
+        override val key get() = "b$blockIndex"
+    }
+
+    data class ListRow(val blockIndex: Int, val list: Block.ListBlock, val item: Int) : RenderItem {
+        override val key get() = "b$blockIndex-i$item"
+    }
+}
+
+private fun flatten(blocks: List<Block>): List<RenderItem> = buildList {
+    blocks.forEachIndexed { i, block ->
+        when (block) {
+            is Block.ListBlock ->
+                block.items.indices.forEach { r -> add(RenderItem.ListRow(i, block, r)) }
+            else -> add(RenderItem.Whole(i, block))
         }
     }
 }
@@ -90,9 +127,24 @@ fun BlockRenderer(
 @Composable
 private fun Float.textDp(): Dp = with(LocalDensity.current) { this@textDp.sp.toDp() }
 
-@Composable
+// Pure ArticleTypography arithmetic — reads nothing from composition.
 private fun bodySize(scalePercent: Int): Float =
     ArticleTypography.spFor(ArticleTypography.BODY_EM, scalePercent)
+
+/** Immutable and theme-independent — built once, not per recomposition. */
+private val GRAYSCALE = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
+
+/** The May css 0.05-grid-unit rule, from the content-secondary token (no color literals). */
+@Composable
+private fun Hairline(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(0.05f.gridUnitsAsDp())
+            .alpha(0.35f)
+            .background(LightThemeTokens.colors.contentSecondary),
+    )
+}
 
 @Composable
 private fun bodyStyle(em: Float, scalePercent: Int, lineHeight: Float = ArticleTypography.BODY_LINE_HEIGHT): TextStyle {
@@ -141,15 +193,7 @@ private fun HeadingBlock(block: Block.Heading, scalePercent: Int) {
             ),
         )
         if (block.level == 2) {
-            // The May css h2 hairline, from the content token (no color literals).
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 0.3f.gridUnitsAsDp())
-                    .height(0.05f.gridUnitsAsDp())
-                    .alpha(0.35f)
-                    .background(LightThemeTokens.colors.contentSecondary),
-            )
+            Hairline(Modifier.padding(top = 0.3f.gridUnitsAsDp()))
         }
     }
 }
@@ -168,24 +212,28 @@ private fun ParagraphBlock(block: Block.Paragraph, isLead: Boolean, scalePercent
 }
 
 @Composable
-private fun ListBlockView(block: Block.ListBlock, scalePercent: Int) {
+private fun ListRowView(list: Block.ListBlock, index: Int, scalePercent: Int, lastInList: Boolean) {
     val body = bodySize(scalePercent)
+    val blockEnd = if (lastInList) {
+        Modifier.padding(bottom = (body * ArticleTypography.PARAGRAPH_SPACING_EM).textDp())
+    } else {
+        Modifier
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 1f.gridUnitsAsDp())
-            .padding(bottom = (body * ArticleTypography.PARAGRAPH_SPACING_EM).textDp()),
+            .then(blockEnd),
     ) {
-        block.items.forEachIndexed { index, item ->
-            ListItemRow(item, marker = marker(block.ordered, index), indentEm = 0f, scalePercent)
-            item.children.forEachIndexed { childIndex, child ->
-                ListItemRow(
-                    child,
-                    marker = marker(block.ordered, childIndex),
-                    indentEm = ArticleTypography.LIST_INDENT_EM,
-                    scalePercent,
-                )
-            }
+        val item = list.items[index]
+        ListItemRow(item, marker = marker(list.ordered, index), indentEm = 0f, scalePercent)
+        item.children.forEachIndexed { childIndex, child ->
+            ListItemRow(
+                child,
+                marker = marker(list.ordered, childIndex),
+                indentEm = ArticleTypography.LIST_INDENT_EM,
+                scalePercent,
+            )
         }
     }
 }
@@ -258,7 +306,7 @@ private fun FigureView(block: Block.Figure, scalePercent: Int) {
                     bitmap = load.bitmap,
                     contentDescription = block.caption,
                     contentScale = ContentScale.FillWidth,
-                    colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }),
+                    colorFilter = GRAYSCALE,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 // Caption only once the image exists — no transient orphan
@@ -281,15 +329,6 @@ private fun FigureView(block: Block.Figure, scalePercent: Int) {
 private fun InfoboxCardView(block: Block.InfoboxCard, scalePercent: Int) {
     if (block.title == null && block.rows.isEmpty()) return
     val body = bodySize(scalePercent)
-
-    @Composable
-    fun Hairline() = Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(0.05f.gridUnitsAsDp())
-            .alpha(0.35f)
-            .background(LightThemeTokens.colors.contentSecondary),
-    )
 
     Column(
         modifier = Modifier

@@ -59,6 +59,46 @@ object WikiHosts {
         require(uri.port == -1) { "explicit port refused: $url" }
         require(uri.host in ALLOWED) { "host not on the two-host allowlist: $url" }
     }
+
+    /** One UA for every request the tool makes — API and images alike. */
+    const val USER_AGENT = "LightWiki/0.1 (+https://github.com/tyleryancey/light-wiki)"
+}
+
+/**
+ * The one OkHttp client behind every request the tool makes — Ktor rides it
+ * via `preconfigured`, and image fetches use it directly. One client means
+ * one connection pool and one dispatcher thread pool instead of two, and its
+ * interceptors enforce the request policy (allowlist + User-Agent) at the
+ * seam so no call site can forget either. The policy runs both as an
+ * application interceptor (fails fast, before any connection) and as a
+ * network interceptor (covers every redirect hop OkHttp follows — a
+ * redirect off the allowlist is refused, not silently followed). The
+ * explicit assertAllowed calls at the API and image call sites remain as
+ * defense-in-depth.
+ */
+object WikiHttp {
+
+    private val policy = okhttp3.Interceptor { chain ->
+        val request = chain.request()
+        try {
+            WikiHosts.assertAllowed(request.url.toString())
+        } catch (e: IllegalArgumentException) {
+            // Must be IOException inside an interceptor: OkHttp's async path
+            // rethrows anything else on its dispatcher thread (process death
+            // on Android). IOException routes to the callers' existing calm
+            // error handling — Error+RETRY for API calls, drop-figure for
+            // images.
+            throw IOException(e.message, e)
+        }
+        chain.proceed(
+            request.newBuilder().header("User-Agent", WikiHosts.USER_AGENT).build(),
+        )
+    }
+
+    val client: okhttp3.OkHttpClient = okhttp3.OkHttpClient.Builder()
+        .addInterceptor(policy)
+        .addNetworkInterceptor(policy)
+        .build()
 }
 
 // --- API surface ---
@@ -77,6 +117,7 @@ interface WikiApi {
 class KtorWikiApi : WikiApi {
 
     private val client = HttpClient(OkHttp) {
+        engine { preconfigured = WikiHttp.client }
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true })
         }
@@ -84,9 +125,7 @@ class KtorWikiApi : WikiApi {
 
     private suspend inline fun <reified T> get(url: String): T {
         WikiHosts.assertAllowed(url)
-        val response = client.get(url) {
-            headers.append("User-Agent", USER_AGENT)
-        }
+        val response = client.get(url)
         if (!response.status.isSuccess()) {
             throw IOException("Wikipedia HTTP ${response.status.value}")
         }
@@ -106,6 +145,5 @@ class KtorWikiApi : WikiApi {
 
     private companion object {
         const val BASE = "https://en.wikipedia.org/w/api.php"
-        const val USER_AGENT = "LightWiki/0.1 (+https://github.com/tyleryancey/light-wiki)"
     }
 }

@@ -1,45 +1,23 @@
 package dev.tyler.wiki.pipeline
 
-private val htmlTagRegex = Regex("<[^>]+>")
-private val numericEntityRegex = Regex("&#(x[0-9a-fA-F]+|[0-9]+);")
+import dev.tyler.wiki.parser.HtmlEntities
 
-private val namedEntities = mapOf(
-    "&amp;" to "&",
-    "&lt;" to "<",
-    "&gt;" to ">",
-    "&quot;" to "\"",
-    "&apos;" to "'",
-    "&nbsp;" to " ",
-    "&hellip;" to "…",
-    "&mdash;" to "—",
-    "&ndash;" to "–",
-)
+private val htmlTagRegex = Regex("<[^>]+>")
 
 /**
  * Convert a Wikipedia search snippet (HTML with `<span class="searchmatch">` highlights
  * and entities) to plain text for the search list. A regex pass is sufficient for the
  * small, well-formed snippets the search endpoint returns — the full parser in
- * `parser/` is reserved for article bodies.
+ * `parser/` is reserved for article bodies; entity decoding is the parser's
+ * shared table, so snippets and articles render the same glyphs.
  */
 fun stripSnippetHtml(snippet: String): String {
     val withoutTags = htmlTagRegex.replace(snippet, "")
-    val withNamedDecoded = namedEntities.entries.fold(withoutTags) { acc, (entity, repl) ->
-        acc.replace(entity, repl)
-    }
-    val withNumericDecoded = numericEntityRegex.replace(withNamedDecoded) { match ->
-        val token = match.groupValues[1]
-        val codePoint = if (token.startsWith("x") || token.startsWith("X")) {
-            token.substring(1).toIntOrNull(16)
-        } else {
-            token.toIntOrNull()
-        }
-        if (codePoint != null && Character.isValidCodePoint(codePoint)) {
-            String(Character.toChars(codePoint))
-        } else {
-            match.value
-        }
-    }
-    return withNumericDecoded.trim().withEllipsisIfTruncated()
+    // The shared table decodes &nbsp; to U+00A0; a snippet is a one-line list
+    // row where a non-breaking space would defeat trim and the ellipsis
+    // heuristic, so normalize it to a plain space.
+    val decoded = HtmlEntities.decodeAll(withoutTags).replace('\u00A0', ' ')
+    return decoded.trim().withEllipsisIfTruncated()
 }
 
 // Wikipedia's search snippet is a fixed-length excerpt that frequently lands
