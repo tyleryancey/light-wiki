@@ -94,28 +94,10 @@ class DisambiguationScreen(
                     modifier = Modifier.padding(bottom = 1f.gridUnitsAsDp()),
                 )
                 when (val m = mode) {
-                    is DisambiguationViewModel.Mode.Loading -> LightText(
-                        text = "Loading…",
-                        variant = LightTextVariant.Copy,
-                        lighten = true,
-                        modifier = Modifier.padding(horizontal = 1f.gridUnitsAsDp()),
-                    )
+                    is DisambiguationViewModel.Mode.Loading -> StatusLine("Loading…")
 
-                    is DisambiguationViewModel.Mode.Error -> Column {
-                        LightText(
-                            text = m.message,
-                            variant = LightTextVariant.Copy,
-                            modifier = Modifier.padding(horizontal = 1f.gridUnitsAsDp()),
-                        )
-                        LightText(
-                            text = "RETRY",
-                            variant = LightTextVariant.Detail,
-                            modifier = Modifier
-                                .padding(horizontal = 1f.gridUnitsAsDp())
-                                .padding(top = 1f.gridUnitsAsDp())
-                                .lightClickable { viewModel.load() },
-                        )
-                    }
+                    is DisambiguationViewModel.Mode.Error ->
+                        ErrorRetry(m.message) { viewModel.load() }
 
                     is DisambiguationViewModel.Mode.Sections -> {
                         // One navigation per visit. LightClickable is a bare Modifier.clickable

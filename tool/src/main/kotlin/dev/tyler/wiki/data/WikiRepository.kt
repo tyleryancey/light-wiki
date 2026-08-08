@@ -22,6 +22,7 @@ class WikiRepository(private val api: WikiApi) {
 
     private val searchCache = LruCache<String, List<SearchResult>>(32)
     private val disambigCache = LruCache<String, List<DisambiguationSection>>(64)
+    private val disambigFlagCache = LruCache<String, Boolean>(64)
     private val articleCache = LruCache<String, ArticleDocument>(16)
 
     suspend fun search(query: String): List<SearchResult> {
@@ -35,8 +36,11 @@ class WikiRepository(private val api: WikiApi) {
     }
 
     suspend fun isDisambiguation(title: String): Boolean {
+        disambigFlagCache.get(title)?.let { return it }
         val pages = api.pageProps(title).query?.pages ?: apiError()
-        return pages.firstOrNull()?.isDisambiguation == true
+        val flag = pages.firstOrNull()?.isDisambiguation == true
+        disambigFlagCache.put(title, flag)
+        return flag
     }
 
     suspend fun disambigSections(title: String): List<DisambiguationSection> {

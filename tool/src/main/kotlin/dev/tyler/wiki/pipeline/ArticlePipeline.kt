@@ -3,6 +3,7 @@ package dev.tyler.wiki.pipeline
 import dev.tyler.wiki.parser.HtmlNode
 import dev.tyler.wiki.parser.HtmlNode.Element
 import dev.tyler.wiki.parser.HtmlNode.TextNode
+import dev.tyler.wiki.parser.HtmlNodes
 
 /**
  * Tree→tree transforms over parsed `action=parse&prop=text` output, in the
@@ -74,22 +75,15 @@ object ArticlePipeline {
             el.copy(children = kept.map { recurse(it, depth + 1) })
         }
 
-    /** Bare `<h2>` or `<div class="mw-heading2">` wrapping one — a top-level section boundary. */
-    private fun isHeading2Container(el: Element): Boolean {
-        if (el.name == "h2") return true
-        return el.name == "div" && "mw-heading2" in el.classes &&
-            el.children.any { it is Element && it.name == "h2" }
-    }
+    /** Bare `<h2>` or `<div class="mw-heading…">` wrapping one — a top-level section boundary. */
+    private fun isHeading2Container(el: Element): Boolean =
+        HtmlNodes.headingOf(el)?.name == "h2"
 
     private fun isAppendixHeading(container: Element): Boolean {
-        val h2 = if (container.name == "h2") {
-            container
-        } else {
-            container.children.firstOrNull { it is Element && it.name == "h2" } as Element? ?: return false
-        }
+        val h2 = HtmlNodes.headingOf(container)?.takeIf { it.name == "h2" } ?: return false
         if (canonicalHeadingId(h2.attrs["id"]) in APPENDIX_IDS) return true
         // Legacy shape: id on a nested <span class="mw-headline">.
-        return findFirst(h2) {
+        return HtmlNodes.findFirst(h2) {
             it.name == "span" && "mw-headline" in it.classes && canonicalHeadingId(it.attrs["id"]) in APPENDIX_IDS
         } != null
     }
@@ -128,7 +122,7 @@ object ArticlePipeline {
                 children = el.children.mapNotNull { child ->
                     when {
                         child is Element && child.name == "noscript" ->
-                            findFirst(child) { it.name == "img" }?.let { fixImg(it) } // promote or drop
+                            HtmlNodes.findFirst(child) { it.name == "img" }?.let { fixImg(it) } // promote or drop
                         child is Element && child.name == "img" -> fixImg(child)
                         else -> recurse(child, depth + 1)
                     }
@@ -166,8 +160,9 @@ object ArticlePipeline {
     // --- Pass 5: infobox reflow ----------------------------------------
 
     private fun reflowInfobox(root: Element): Element {
-        val infobox = findFirst(root) { it.name == "table" && "infobox" in it.classes } ?: return root
-        val container = findFirst(root) { "mw-parser-output" in it.classes } ?: root
+        val infobox = HtmlNodes.findFirst(root, includeSelf = true) { it.name == "table" && "infobox" in it.classes }
+            ?: return root
+        val container = HtmlNodes.contentRoot(root)
         val lead = container.children.firstOrNull {
             it is Element && it.name == "p" && hasNonBlankText(it)
         } as Element? ?: return root
@@ -220,17 +215,4 @@ object ArticlePipeline {
         return fn(root, depth, recurse)
     }
 
-    /** First element (document order, iterative) satisfying [predicate], self included. */
-    private fun findFirst(root: Element, predicate: (Element) -> Boolean): Element? {
-        val stack = ArrayDeque<HtmlNode>()
-        stack.addLast(root)
-        while (stack.isNotEmpty()) {
-            val n = stack.removeLast()
-            if (n is Element) {
-                if (predicate(n)) return n
-                for (i in n.children.indices.reversed()) stack.addLast(n.children[i])
-            }
-        }
-        return null
-    }
 }

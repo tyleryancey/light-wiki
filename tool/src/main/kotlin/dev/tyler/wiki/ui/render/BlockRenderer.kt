@@ -90,9 +90,24 @@ fun BlockRenderer(
 @Composable
 private fun Float.textDp(): Dp = with(LocalDensity.current) { this@textDp.sp.toDp() }
 
-@Composable
+// Pure ArticleTypography arithmetic — reads nothing from composition.
 private fun bodySize(scalePercent: Int): Float =
     ArticleTypography.spFor(ArticleTypography.BODY_EM, scalePercent)
+
+/** Immutable and theme-independent — built once, not per recomposition. */
+private val GRAYSCALE = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
+
+/** The May css 0.05-grid-unit rule, from the content-secondary token (no color literals). */
+@Composable
+private fun Hairline(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(0.05f.gridUnitsAsDp())
+            .alpha(0.35f)
+            .background(LightThemeTokens.colors.contentSecondary),
+    )
+}
 
 @Composable
 private fun bodyStyle(em: Float, scalePercent: Int, lineHeight: Float = ArticleTypography.BODY_LINE_HEIGHT): TextStyle {
@@ -141,15 +156,7 @@ private fun HeadingBlock(block: Block.Heading, scalePercent: Int) {
             ),
         )
         if (block.level == 2) {
-            // The May css h2 hairline, from the content token (no color literals).
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 0.3f.gridUnitsAsDp())
-                    .height(0.05f.gridUnitsAsDp())
-                    .alpha(0.35f)
-                    .background(LightThemeTokens.colors.contentSecondary),
-            )
+            Hairline(Modifier.padding(top = 0.3f.gridUnitsAsDp()))
         }
     }
 }
@@ -258,7 +265,7 @@ private fun FigureView(block: Block.Figure, scalePercent: Int) {
                     bitmap = load.bitmap,
                     contentDescription = block.caption,
                     contentScale = ContentScale.FillWidth,
-                    colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }),
+                    colorFilter = GRAYSCALE,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 // Caption only once the image exists — no transient orphan
@@ -281,15 +288,6 @@ private fun FigureView(block: Block.Figure, scalePercent: Int) {
 private fun InfoboxCardView(block: Block.InfoboxCard, scalePercent: Int) {
     if (block.title == null && block.rows.isEmpty()) return
     val body = bodySize(scalePercent)
-
-    @Composable
-    fun Hairline() = Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(0.05f.gridUnitsAsDp())
-            .alpha(0.35f)
-            .background(LightThemeTokens.colors.contentSecondary),
-    )
 
     Column(
         modifier = Modifier

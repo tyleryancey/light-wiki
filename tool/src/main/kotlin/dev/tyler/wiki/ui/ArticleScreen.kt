@@ -22,14 +22,12 @@ import com.thelightphone.sdk.ui.LightBarButton
 import com.thelightphone.sdk.ui.LightBottomBar
 import com.thelightphone.sdk.ui.LightIcons
 import com.thelightphone.sdk.ui.LightText
-import com.thelightphone.sdk.ui.LightTextVariant
 import com.thelightphone.sdk.ui.LightTheme
 import com.thelightphone.sdk.ui.LightThemeController
 import com.thelightphone.sdk.ui.LightThemeTokens
 import com.thelightphone.sdk.ui.LightTopBar
 import com.thelightphone.sdk.ui.LightTopBarCenter
 import com.thelightphone.sdk.ui.gridUnitsAsDp
-import com.thelightphone.sdk.ui.lightClickable
 import dev.tyler.wiki.model.ArticleDocument
 import dev.tyler.wiki.pipeline.friendlyErrorMessage
 import dev.tyler.wiki.ui.render.ArticleTypography
@@ -131,28 +129,10 @@ class ArticleScreen(
                     modifier = Modifier.padding(bottom = 0.5f.gridUnitsAsDp()),
                 )
                 when (val m = mode) {
-                    is ArticleViewModel.Mode.Loading -> LightText(
-                        text = "Loading…",
-                        variant = LightTextVariant.Copy,
-                        lighten = true,
-                        modifier = Modifier.padding(horizontal = 1f.gridUnitsAsDp()),
-                    )
+                    is ArticleViewModel.Mode.Loading -> StatusLine("Loading…")
 
-                    is ArticleViewModel.Mode.Error -> Column {
-                        LightText(
-                            text = m.message,
-                            variant = LightTextVariant.Copy,
-                            modifier = Modifier.padding(horizontal = 1f.gridUnitsAsDp()),
-                        )
-                        LightText(
-                            text = "RETRY",
-                            variant = LightTextVariant.Detail,
-                            modifier = Modifier
-                                .padding(horizontal = 1f.gridUnitsAsDp())
-                                .padding(top = 1f.gridUnitsAsDp())
-                                .lightClickable { viewModel.load() },
-                        )
-                    }
+                    is ArticleViewModel.Mode.Error ->
+                        ErrorRetry(m.message) { viewModel.load() }
 
                     is ArticleViewModel.Mode.Loaded -> {
                         BlockRenderer(

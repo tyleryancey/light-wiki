@@ -22,7 +22,6 @@ import okhttp3.Request
 object Images {
 
     private const val TAG = "LightWikiImages"
-    private const val USER_AGENT = "LightWiki/0.1 (+https://github.com/tyleryancey/light-wiki)"
 
     /** Never decode wider than the panel (1080 px) or taller than two panelsful. */
     private const val MAX_WIDTH_PX = 1080
@@ -40,7 +39,7 @@ object Images {
             try {
                 WikiHosts.assertAllowed(url)
                 val bytes = client.newCall(
-                    Request.Builder().url(url).header("User-Agent", USER_AGENT).build(),
+                    Request.Builder().url(url).header("User-Agent", WikiHosts.USER_AGENT).build(),
                 ).execute().use { response ->
                     if (!response.isSuccessful) {
                         android.util.Log.w(TAG, "HTTP ${response.code}: $url")

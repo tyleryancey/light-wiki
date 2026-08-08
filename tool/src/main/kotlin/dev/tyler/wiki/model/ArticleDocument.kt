@@ -3,6 +3,7 @@ package dev.tyler.wiki.model
 import dev.tyler.wiki.parser.HtmlNode
 import dev.tyler.wiki.parser.HtmlNode.Element
 import dev.tyler.wiki.parser.HtmlNode.TextNode
+import dev.tyler.wiki.parser.HtmlNodes
 
 /** A run of text with inline styling. The only inline styles v1 renders. */
 data class InlineSpan(
@@ -50,7 +51,7 @@ data class ArticleDocument(val blocks: List<Block>) {
         private const val MAX_DEPTH = 64
 
         fun from(root: Element): ArticleDocument {
-            val container = findFirst(root) { "mw-parser-output" in it.classes } ?: root
+            val container = HtmlNodes.contentRoot(root)
             val blocks = ArrayList<Block>()
             extractBlocks(container.children, blocks, 0)
             return ArticleDocument(blocks)
@@ -61,14 +62,8 @@ data class ArticleDocument(val blocks: List<Block>) {
             for (node in nodes) {
                 val el = node as? Element ?: continue
                 when {
-                    el.name in setOf("h2", "h3", "h4") -> {
-                        val text = inlineText(el)
-                        if (text.isNotEmpty()) out.add(Block.Heading(el.name[1].digitToInt(), text))
-                    }
-                    el.name == "div" && el.classes.any { it == "mw-heading" || it.startsWith("mw-heading") } -> {
-                        val h = el.children.firstOrNull {
-                            it is Element && it.name in setOf("h2", "h3", "h4")
-                        } as Element?
+                    HtmlNodes.isHeadingShape(el) -> {
+                        val h = HtmlNodes.headingOf(el)
                         if (h != null) {
                             val text = inlineText(h)
                             if (text.isNotEmpty()) out.add(Block.Heading(h.name[1].digitToInt(), text))
@@ -151,7 +146,7 @@ data class ArticleDocument(val blocks: List<Block>) {
         // --- Figures, infobox, tables, math ---
 
         private fun extractFigure(figure: Element): Block.Figure? {
-            val img = findFirst(figure) { it.name == "img" } ?: return null
+            val img = HtmlNodes.findFirst(figure) { it.name == "img" } ?: return null
             val src = img.attrs["src"]?.takeIf { it.isNotBlank() } ?: return null
             val caption = figure.children.firstOrNull {
                 it is Element && it.name == "figcaption"
@@ -165,7 +160,7 @@ data class ArticleDocument(val blocks: List<Block>) {
         }
 
         private fun extractInfobox(table: Element): Block.InfoboxCard? {
-            val title = findFirst(table) { it.name == "caption" }
+            val title = HtmlNodes.findFirst(table) { it.name == "caption" }
                 ?.let { inlineText(it).takeIf(String::isNotEmpty) }
             val trs = tableRows(table)
 
@@ -253,7 +248,7 @@ data class ArticleDocument(val blocks: List<Block>) {
         }
 
         private fun mathSrc(mathSpan: Element): String? =
-            findFirst(mathSpan) { it.name == "img" }?.attrs?.get("src")?.takeIf { it.isNotBlank() }
+            HtmlNodes.findFirst(mathSpan) { it.name == "img" }?.attrs?.get("src")?.takeIf { it.isNotBlank() }
 
         /** A math span's [Block.MathImage], if it carries a usable image src. */
         private fun extractMath(span: Element): Block.MathImage? = mathSrc(span)?.let { Block.MathImage(it) }
@@ -330,8 +325,6 @@ data class ArticleDocument(val blocks: List<Block>) {
 
         // --- Inline spans ---
 
-        private class RawPiece(val text: String, val bold: Boolean, val italic: Boolean)
-
         private class Frame(val node: HtmlNode, val bold: Boolean, val italic: Boolean)
 
         /**
@@ -356,7 +349,7 @@ data class ArticleDocument(val blocks: List<Block>) {
             excludeNestedLists: Boolean = false,
             dropDisplayMath: Boolean = false,
         ): List<InlineSpan> {
-            val pieces = ArrayList<RawPiece>()
+            val pieces = ArrayList<InlineSpan>()
             val stack = ArrayDeque<Frame>()
 
             fun pushChildren(el: Element, bold: Boolean, italic: Boolean) {
@@ -371,7 +364,7 @@ data class ArticleDocument(val blocks: List<Block>) {
             while (stack.isNotEmpty()) {
                 val frame = stack.removeLast()
                 when (val n = frame.node) {
-                    is TextNode -> pieces.add(RawPiece(n.text, frame.bold, frame.italic))
+                    is TextNode -> pieces.add(InlineSpan(n.text, frame.bold, frame.italic))
                     is Element -> {
                         when {
                             // Hidden microformat spans (bday etc.) must not leak as text.
@@ -383,12 +376,12 @@ data class ArticleDocument(val blocks: List<Block>) {
                                 pushChildren(n, bold = frame.bold, italic = true)
                             n.name == "span" && "mwe-math-element" in n.classes -> {
                                 if (!(dropDisplayMath && isDisplayMath(n))) {
-                                    val alt = findFirst(n) { it.name == "img" }?.attrs?.get("alt")
-                                    if (!alt.isNullOrBlank()) pieces.add(RawPiece(alt, frame.bold, frame.italic))
+                                    val alt = HtmlNodes.findFirst(n) { it.name == "img" }?.attrs?.get("alt")
+                                    if (!alt.isNullOrBlank()) pieces.add(InlineSpan(alt, frame.bold, frame.italic))
                                 }
                             }
                             n.name == "img" -> {} // stray inline image: contributes nothing
-                            n.name == "br" -> pieces.add(RawPiece(" ", frame.bold, frame.italic))
+                            n.name == "br" -> pieces.add(InlineSpan(" ", frame.bold, frame.italic))
                             excludeNestedLists && (n.name == "ul" || n.name == "ol") -> {}
                             else -> pushChildren(n, frame.bold, frame.italic)
                         }
@@ -400,24 +393,34 @@ data class ArticleDocument(val blocks: List<Block>) {
 
         /** True if [mathSpan]'s fallback image carries the display (not inline) class. */
         private fun isDisplayMath(mathSpan: Element): Boolean =
-            findFirst(mathSpan) { it.name == "img" && "mwe-math-fallback-image-display" in it.classes } != null
+            HtmlNodes.findFirst(mathSpan) { it.name == "img" && "mwe-math-fallback-image-display" in it.classes } != null
 
         private val WHITESPACE_RUN = Regex("[ \t\n\r]+")
 
-        private fun mergeAndClean(pieces: List<RawPiece>): List<InlineSpan> {
+        private fun mergeAndClean(pieces: List<InlineSpan>): List<InlineSpan> {
             if (pieces.isEmpty()) return emptyList()
-            // Merge adjacent same-style pieces.
-            val merged = ArrayList<RawPiece>()
-            for (p in pieces) {
-                val last = merged.lastOrNull()
-                if (last != null && last.bold == p.bold && last.italic == p.italic) {
-                    merged[merged.size - 1] = RawPiece(last.text + p.text, p.bold, p.italic)
+            // Merge adjacent same-style pieces, accumulating each run in one
+            // StringBuilder — re-concatenating per piece was O(run²) over the
+            // long same-style runs link stripping produces.
+            val merged = ArrayList<InlineSpan>()
+            val run = StringBuilder(pieces[0].text)
+            var bold = pieces[0].bold
+            var italic = pieces[0].italic
+            for (i in 1 until pieces.size) {
+                val p = pieces[i]
+                if (p.bold == bold && p.italic == italic) {
+                    run.append(p.text)
                 } else {
-                    merged.add(p)
+                    merged.add(InlineSpan(run.toString(), bold, italic))
+                    run.setLength(0)
+                    run.append(p.text)
+                    bold = p.bold
+                    italic = p.italic
                 }
             }
+            merged.add(InlineSpan(run.toString(), bold, italic))
             // Collapse whitespace runs; trim the outer edges of the whole run.
-            val spans = merged.map { InlineSpan(WHITESPACE_RUN.replace(it.text, " "), it.bold, it.italic) }
+            val spans = merged.map { it.copy(text = WHITESPACE_RUN.replace(it.text, " ")) }
                 .toMutableList()
             if (spans.isNotEmpty()) {
                 spans[0] = spans[0].copy(text = spans[0].text.trimStart())
@@ -438,17 +441,5 @@ data class ArticleDocument(val blocks: List<Block>) {
         private fun inlineText(el: Element): String =
             inlineSpans(el).joinToString("") { it.text }.trim()
 
-        private fun findFirst(root: Element, predicate: (Element) -> Boolean): Element? {
-            val stack = ArrayDeque<HtmlNode>()
-            for (i in root.children.indices.reversed()) stack.addLast(root.children[i])
-            while (stack.isNotEmpty()) {
-                val n = stack.removeLast()
-                if (n is Element) {
-                    if (predicate(n)) return n
-                    for (i in n.children.indices.reversed()) stack.addLast(n.children[i])
-                }
-            }
-            return null
-        }
     }
 }

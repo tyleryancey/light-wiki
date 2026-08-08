@@ -59,6 +59,9 @@ object WikiHosts {
         require(uri.port == -1) { "explicit port refused: $url" }
         require(uri.host in ALLOWED) { "host not on the two-host allowlist: $url" }
     }
+
+    /** One UA for every request the tool makes — API and images alike. */
+    const val USER_AGENT = "LightWiki/0.1 (+https://github.com/tyleryancey/light-wiki)"
 }
 
 // --- API surface ---
@@ -85,7 +88,7 @@ class KtorWikiApi : WikiApi {
     private suspend inline fun <reified T> get(url: String): T {
         WikiHosts.assertAllowed(url)
         val response = client.get(url) {
-            headers.append("User-Agent", USER_AGENT)
+            headers.append("User-Agent", WikiHosts.USER_AGENT)
         }
         if (!response.status.isSuccess()) {
             throw IOException("Wikipedia HTTP ${response.status.value}")
@@ -106,6 +109,5 @@ class KtorWikiApi : WikiApi {
 
     private companion object {
         const val BASE = "https://en.wikipedia.org/w/api.php"
-        const val USER_AGENT = "LightWiki/0.1 (+https://github.com/tyleryancey/light-wiki)"
     }
 }
