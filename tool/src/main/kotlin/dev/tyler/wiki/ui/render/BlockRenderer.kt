@@ -2,8 +2,8 @@ package dev.tyler.wiki.ui.render
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
@@ -61,13 +61,13 @@ fun BlockRenderer(
     listState: LazyListState = rememberLazyListState(),
 ) {
     val leadIndex = remember(blocks) { ArticleTypography.leadIndex(blocks) }
-    // Big tables and lists expand to one lazy item per row, so a 100+-row
-    // population table composes as it scrolls into view instead of building
-    // hundreds of Texts in a single frame. Rows of one table share one
-    // ScrollState, so they scroll horizontally together.
+    // Big lists expand to one lazy item per top-level list item, so an
+    // outline article's multi-hundred-item lists compose as they scroll into
+    // view instead of building hundreds of Texts in a single frame. Tables
+    // deliberately stay whole: their rows share one horizontal scroll, and
+    // lazily-composed rows of unequal width would fight over the shared
+    // ScrollState's maxValue, clamping the offset mid-scroll.
     val items = remember(blocks) { flatten(blocks) }
-    val tableScrolls = remember(blocks) { mutableMapOf<Int, ScrollState>() }
-    fun tableScroll(blockIndex: Int) = tableScrolls.getOrPut(blockIndex) { ScrollState(0) }
     LazyColumn(
         state = listState,
         modifier = modifier,
@@ -80,19 +80,13 @@ fun BlockRenderer(
                     is Block.Blockquote -> BlockquoteView(block, scalePercent)
                     is Block.Figure -> FigureView(block, scalePercent)
                     is Block.InfoboxCard -> InfoboxCardView(block, scalePercent)
+                    is Block.SimpleTable -> SimpleTableView(block, scalePercent)
                     // MathImage: unrenderable in v1 — the fallback images are SVG
                     // (BitmapFactory cannot decode) on a third host (wikimedia.org,
                     // not on the two-host allowlist). Display math drops; inline
                     // math already survives as alt text. See exclusions §10.5.
                     else -> Unit
                 }
-                is RenderItem.TableRow -> TableRowLine(
-                    cells = if (item.row == HEADER_ROW) item.table.headers else item.table.rows[item.row],
-                    header = item.row == HEADER_ROW,
-                    scalePercent = scalePercent,
-                    scroll = tableScroll(item.blockIndex),
-                    lastInTable = item.row == item.table.rows.lastIndex,
-                )
                 is RenderItem.ListRow -> ListRowView(
                     list = item.list,
                     index = item.item,
@@ -104,19 +98,12 @@ fun BlockRenderer(
     }
 }
 
-/** Header pseudo-row index for [RenderItem.TableRow]. */
-private const val HEADER_ROW = -1
-
-/** One LazyColumn item: a whole block, or one row of a table or list. */
+/** One LazyColumn item: a whole block, or one row of a list. */
 private sealed interface RenderItem {
     val key: String
 
     data class Whole(val blockIndex: Int, val block: Block) : RenderItem {
         override val key get() = "b$blockIndex"
-    }
-
-    data class TableRow(val blockIndex: Int, val table: Block.SimpleTable, val row: Int) : RenderItem {
-        override val key get() = "b$blockIndex-r$row"
     }
 
     data class ListRow(val blockIndex: Int, val list: Block.ListBlock, val item: Int) : RenderItem {
@@ -127,10 +114,6 @@ private sealed interface RenderItem {
 private fun flatten(blocks: List<Block>): List<RenderItem> = buildList {
     blocks.forEachIndexed { i, block ->
         when (block) {
-            is Block.SimpleTable -> {
-                if (block.headers.isNotEmpty()) add(RenderItem.TableRow(i, block, HEADER_ROW))
-                block.rows.indices.forEach { r -> add(RenderItem.TableRow(i, block, r)) }
-            }
             is Block.ListBlock ->
                 block.items.indices.forEach { r -> add(RenderItem.ListRow(i, block, r)) }
             else -> add(RenderItem.Whole(i, block))
@@ -384,40 +367,43 @@ private fun InfoboxCardView(block: Block.InfoboxCard, scalePercent: Int) {
 }
 
 @Composable
-private fun TableRowLine(
-    cells: List<String>,
-    header: Boolean,
-    scalePercent: Int,
-    scroll: ScrollState,
-    lastInTable: Boolean,
-) {
+private fun SimpleTableView(block: Block.SimpleTable, scalePercent: Int) {
+    if (block.headers.isEmpty() && block.rows.isEmpty()) return
     val body = bodySize(scalePercent)
     val cellMin = (body * ArticleTypography.TABLE_CELL_MIN_EM).textDp()
-    val blockEnd = if (lastInTable) {
-        Modifier.padding(bottom = (body * ArticleTypography.PARAGRAPH_SPACING_EM).textDp())
-    } else {
-        Modifier
-    }
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 1f.gridUnitsAsDp())
-            .then(blockEnd)
-            .horizontalScroll(scroll),
+            .padding(bottom = (body * ArticleTypography.PARAGRAPH_SPACING_EM).textDp())
+            .horizontalScroll(rememberScrollState()),
     ) {
-        val style = bodyStyle(ArticleTypography.CAPTION_EM, scalePercent)
-            .let { if (header) it.copy(fontWeight = FontWeight.Bold) else it }
-        cells.forEach { cell ->
-            Text(
-                text = cell,
-                style = style,
-                modifier = Modifier
-                    .widthIn(min = cellMin)
-                    .padding(
-                        end = 0.6f.gridUnitsAsDp(),
-                        bottom = if (header) 0.2f.gridUnitsAsDp() else 0.15f.gridUnitsAsDp(),
-                    ),
-            )
+        if (block.headers.isNotEmpty()) {
+            Row {
+                block.headers.forEach { header ->
+                    Text(
+                        text = header,
+                        style = bodyStyle(ArticleTypography.CAPTION_EM, scalePercent)
+                            .copy(fontWeight = FontWeight.Bold),
+                        modifier = Modifier
+                            .widthIn(min = cellMin)
+                            .padding(end = 0.6f.gridUnitsAsDp(), bottom = 0.2f.gridUnitsAsDp()),
+                    )
+                }
+            }
+        }
+        block.rows.forEach { row ->
+            Row {
+                row.forEach { cell ->
+                    Text(
+                        text = cell,
+                        style = bodyStyle(ArticleTypography.CAPTION_EM, scalePercent),
+                        modifier = Modifier
+                            .widthIn(min = cellMin)
+                            .padding(end = 0.6f.gridUnitsAsDp(), bottom = 0.15f.gridUnitsAsDp()),
+                    )
+                }
+            }
         }
     }
 }

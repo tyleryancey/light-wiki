@@ -80,7 +80,16 @@ object WikiHttp {
 
     private val policy = okhttp3.Interceptor { chain ->
         val request = chain.request()
-        WikiHosts.assertAllowed(request.url.toString())
+        try {
+            WikiHosts.assertAllowed(request.url.toString())
+        } catch (e: IllegalArgumentException) {
+            // Must be IOException inside an interceptor: OkHttp's async path
+            // rethrows anything else on its dispatcher thread (process death
+            // on Android). IOException routes to the callers' existing calm
+            // error handling — Error+RETRY for API calls, drop-figure for
+            // images.
+            throw IOException(e.message, e)
+        }
         chain.proceed(
             request.newBuilder().header("User-Agent", WikiHosts.USER_AGENT).build(),
         )

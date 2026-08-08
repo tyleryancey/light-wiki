@@ -167,10 +167,14 @@ object ArticlePipeline {
      * anchor's contents surface at this level exactly as the link pass left
      * them), then image promotion/fixing, then the clutter drop — each rule
      * consulted per child just as the sequential fns consult it, including
-     * the promoted-image-then-clutter-check ordering. Depth accounting at
-     * the MAX_DEPTH cap counts unwrapped anchors as a level, as the
-     * sequential link pass did; past the cap an element keeps its identity
-     * but loses its children, mirroring [rebuild].
+     * the promoted-image-then-clutter-check ordering. Equivalence holds for
+     * any tree within MAX_DEPTH; past the cap an element keeps its identity
+     * but loses its children, mirroring [rebuild], with two knowing
+     * approximations on such pathological trees (real articles nest ~30):
+     * unwrapped anchors count as a level exactly as the sequential link
+     * pass counted them, and a noscript's image search is not
+     * depth-truncated first, so the fused pass can keep an image the
+     * sequential chain would have discarded.
      */
     internal fun fusedLocalPasses(root: Element): Element =
         root.copy(children = fusedChildren(root.children, 1))
@@ -183,9 +187,10 @@ object ArticlePipeline {
                 child.name == "a" -> {
                     if (depth <= MAX_DEPTH) out.addAll(fusedChildren(child.children, depth + 1))
                 }
-                child.name == "noscript" ->
+                child.name == "noscript" -> if (depth <= MAX_DEPTH) {
                     HtmlNodes.findFirst(child) { it.name == "img" }?.let(::fixImg)
                         ?.takeUnless(::isClutter)?.let(out::add)
+                }
                 child.name == "img" -> if (!isClutter(child)) out.add(fixImg(child))
                 isClutter(child) -> {}
                 depth > MAX_DEPTH -> out.add(child.copy(children = emptyList()))
