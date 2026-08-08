@@ -1,6 +1,8 @@
 package dev.tyler.wiki.parser
 
+import dev.tyler.wiki.pipeline.TreeTestSupport.ARTICLE_FIXTURES
 import dev.tyler.wiki.pipeline.TreeTestSupport.allElements
+import dev.tyler.wiki.pipeline.TreeTestSupport.articleFixture
 import dev.tyler.wiki.pipeline.TreeTestSupport.flatText
 import kotlin.test.Test
 import kotlin.test.assertTrue
@@ -13,30 +15,10 @@ import kotlin.test.fail
  */
 class FixtureParseTest {
 
-    private val articles = listOf(
-        "caffeine",
-        "fourier-transform",
-        "gettysburg-address",
-        "great-wave-kanagawa",
-        "list-countries-population-un",
-        "list-presidents-us",
-        "marie-curie",
-        "mary-anning",
-        "mercury-disambiguation",
-        "mercury-element",
-        "outline-of-chemistry",
-        "vestmanna",
-    )
-
-    private fun load(slug: String): String =
-        javaClass.getResourceAsStream("/fixtures/articles/$slug.html")
-            ?.bufferedReader()?.readText()
-            ?: fail("fixture missing: $slug.html")
-
     @Test
     fun `every fixture article lexes and builds a substantial tree`() {
-        for (slug in articles) {
-            val html = load(slug)
+        for (slug in ARTICLE_FIXTURES) {
+            val html = articleFixture(slug)
             val root = try {
                 HtmlTree.parse(html)
             } catch (e: Exception) {
@@ -51,7 +33,7 @@ class FixtureParseTest {
 
     @Test
     fun `largest fixture parses in reasonable time and text survives entity decoding`() {
-        val html = load("fourier-transform")
+        val html = articleFixture("fourier-transform")
         val start = System.nanoTime()
         val root = HtmlTree.parse(html)
         val ms = (System.nanoTime() - start) / 1_000_000
@@ -62,7 +44,7 @@ class FixtureParseTest {
 
     @Test
     fun `no raw entity references survive in decoded text`() {
-        val text = flatText(HtmlTree.parse(load("mercury-element")))
+        val text = flatText(HtmlTree.parse(articleFixture("mercury-element")))
         for (raw in listOf("&amp;", "&lt;", "&gt;", "&nbsp;", "&#160;", "&#91;")) {
             assertTrue(raw !in text, "raw entity $raw survived decoding")
         }

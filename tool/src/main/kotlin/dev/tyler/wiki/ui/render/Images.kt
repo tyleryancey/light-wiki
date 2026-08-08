@@ -5,9 +5,9 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import dev.tyler.wiki.data.LruCache
 import dev.tyler.wiki.data.WikiHosts
+import dev.tyler.wiki.data.WikiHttp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 
 /**
@@ -30,16 +30,14 @@ object Images {
     /** ~24 thumbnails ≈ a few MB downsampled; bounded and process-scoped. */
     private val cache = LruCache<String, ImageBitmap>(24)
 
-    private val client = OkHttpClient()
-
     /** Fetch + decode [url], or null on any failure (drop-figure contract). */
     suspend fun load(url: String): ImageBitmap? {
         cache.get(url)?.let { return it }
         return withContext(Dispatchers.IO) {
             try {
                 WikiHosts.assertAllowed(url)
-                val bytes = client.newCall(
-                    Request.Builder().url(url).header("User-Agent", WikiHosts.USER_AGENT).build(),
+                val bytes = WikiHttp.client.newCall(
+                    Request.Builder().url(url).build(),
                 ).execute().use { response ->
                     if (!response.isSuccessful) {
                         android.util.Log.w(TAG, "HTTP ${response.code}: $url")

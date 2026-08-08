@@ -2,8 +2,8 @@ package dev.tyler.wiki.ui.render
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -61,25 +61,79 @@ fun BlockRenderer(
     listState: LazyListState = rememberLazyListState(),
 ) {
     val leadIndex = remember(blocks) { ArticleTypography.leadIndex(blocks) }
+    // Big tables and lists expand to one lazy item per row, so a 100+-row
+    // population table composes as it scrolls into view instead of building
+    // hundreds of Texts in a single frame. Rows of one table share one
+    // ScrollState, so they scroll horizontally together.
+    val items = remember(blocks) { flatten(blocks) }
+    val tableScrolls = remember(blocks) { mutableMapOf<Int, ScrollState>() }
+    fun tableScroll(blockIndex: Int) = tableScrolls.getOrPut(blockIndex) { ScrollState(0) }
     LazyColumn(
         state = listState,
         modifier = modifier,
     ) {
-        itemsIndexed(blocks, key = { index, _ -> index }) { index, block ->
-            when (block) {
-                is Block.Heading -> HeadingBlock(block, scalePercent)
-                is Block.Paragraph -> ParagraphBlock(block, index == leadIndex, scalePercent)
-                is Block.ListBlock -> ListBlockView(block, scalePercent)
-                is Block.Blockquote -> BlockquoteView(block, scalePercent)
-                is Block.Figure -> FigureView(block, scalePercent)
-                is Block.InfoboxCard -> InfoboxCardView(block, scalePercent)
-                is Block.SimpleTable -> SimpleTableView(block, scalePercent)
-                // MathImage: unrenderable in v1 — the fallback images are SVG
-                // (BitmapFactory cannot decode) on a third host (wikimedia.org,
-                // not on the two-host allowlist). Display math drops; inline
-                // math already survives as alt text. See exclusions §10.5.
-                else -> Unit
+        items(items, key = { it.key }) { item ->
+            when (item) {
+                is RenderItem.Whole -> when (val block = item.block) {
+                    is Block.Heading -> HeadingBlock(block, scalePercent)
+                    is Block.Paragraph -> ParagraphBlock(block, item.blockIndex == leadIndex, scalePercent)
+                    is Block.Blockquote -> BlockquoteView(block, scalePercent)
+                    is Block.Figure -> FigureView(block, scalePercent)
+                    is Block.InfoboxCard -> InfoboxCardView(block, scalePercent)
+                    // MathImage: unrenderable in v1 — the fallback images are SVG
+                    // (BitmapFactory cannot decode) on a third host (wikimedia.org,
+                    // not on the two-host allowlist). Display math drops; inline
+                    // math already survives as alt text. See exclusions §10.5.
+                    else -> Unit
+                }
+                is RenderItem.TableRow -> TableRowLine(
+                    cells = if (item.row == HEADER_ROW) item.table.headers else item.table.rows[item.row],
+                    header = item.row == HEADER_ROW,
+                    scalePercent = scalePercent,
+                    scroll = tableScroll(item.blockIndex),
+                    lastInTable = item.row == item.table.rows.lastIndex,
+                )
+                is RenderItem.ListRow -> ListRowView(
+                    list = item.list,
+                    index = item.item,
+                    scalePercent = scalePercent,
+                    lastInList = item.item == item.list.items.lastIndex,
+                )
             }
+        }
+    }
+}
+
+/** Header pseudo-row index for [RenderItem.TableRow]. */
+private const val HEADER_ROW = -1
+
+/** One LazyColumn item: a whole block, or one row of a table or list. */
+private sealed interface RenderItem {
+    val key: String
+
+    data class Whole(val blockIndex: Int, val block: Block) : RenderItem {
+        override val key get() = "b$blockIndex"
+    }
+
+    data class TableRow(val blockIndex: Int, val table: Block.SimpleTable, val row: Int) : RenderItem {
+        override val key get() = "b$blockIndex-r$row"
+    }
+
+    data class ListRow(val blockIndex: Int, val list: Block.ListBlock, val item: Int) : RenderItem {
+        override val key get() = "b$blockIndex-i$item"
+    }
+}
+
+private fun flatten(blocks: List<Block>): List<RenderItem> = buildList {
+    blocks.forEachIndexed { i, block ->
+        when (block) {
+            is Block.SimpleTable -> {
+                if (block.headers.isNotEmpty()) add(RenderItem.TableRow(i, block, HEADER_ROW))
+                block.rows.indices.forEach { r -> add(RenderItem.TableRow(i, block, r)) }
+            }
+            is Block.ListBlock ->
+                block.items.indices.forEach { r -> add(RenderItem.ListRow(i, block, r)) }
+            else -> add(RenderItem.Whole(i, block))
         }
     }
 }
@@ -175,24 +229,28 @@ private fun ParagraphBlock(block: Block.Paragraph, isLead: Boolean, scalePercent
 }
 
 @Composable
-private fun ListBlockView(block: Block.ListBlock, scalePercent: Int) {
+private fun ListRowView(list: Block.ListBlock, index: Int, scalePercent: Int, lastInList: Boolean) {
     val body = bodySize(scalePercent)
+    val blockEnd = if (lastInList) {
+        Modifier.padding(bottom = (body * ArticleTypography.PARAGRAPH_SPACING_EM).textDp())
+    } else {
+        Modifier
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 1f.gridUnitsAsDp())
-            .padding(bottom = (body * ArticleTypography.PARAGRAPH_SPACING_EM).textDp()),
+            .then(blockEnd),
     ) {
-        block.items.forEachIndexed { index, item ->
-            ListItemRow(item, marker = marker(block.ordered, index), indentEm = 0f, scalePercent)
-            item.children.forEachIndexed { childIndex, child ->
-                ListItemRow(
-                    child,
-                    marker = marker(block.ordered, childIndex),
-                    indentEm = ArticleTypography.LIST_INDENT_EM,
-                    scalePercent,
-                )
-            }
+        val item = list.items[index]
+        ListItemRow(item, marker = marker(list.ordered, index), indentEm = 0f, scalePercent)
+        item.children.forEachIndexed { childIndex, child ->
+            ListItemRow(
+                child,
+                marker = marker(list.ordered, childIndex),
+                indentEm = ArticleTypography.LIST_INDENT_EM,
+                scalePercent,
+            )
         }
     }
 }
@@ -326,43 +384,40 @@ private fun InfoboxCardView(block: Block.InfoboxCard, scalePercent: Int) {
 }
 
 @Composable
-private fun SimpleTableView(block: Block.SimpleTable, scalePercent: Int) {
-    if (block.headers.isEmpty() && block.rows.isEmpty()) return
+private fun TableRowLine(
+    cells: List<String>,
+    header: Boolean,
+    scalePercent: Int,
+    scroll: ScrollState,
+    lastInTable: Boolean,
+) {
     val body = bodySize(scalePercent)
     val cellMin = (body * ArticleTypography.TABLE_CELL_MIN_EM).textDp()
-    Column(
+    val blockEnd = if (lastInTable) {
+        Modifier.padding(bottom = (body * ArticleTypography.PARAGRAPH_SPACING_EM).textDp())
+    } else {
+        Modifier
+    }
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 1f.gridUnitsAsDp())
-            .padding(bottom = (body * ArticleTypography.PARAGRAPH_SPACING_EM).textDp())
-            .horizontalScroll(rememberScrollState()),
+            .then(blockEnd)
+            .horizontalScroll(scroll),
     ) {
-        if (block.headers.isNotEmpty()) {
-            Row {
-                block.headers.forEach { header ->
-                    Text(
-                        text = header,
-                        style = bodyStyle(ArticleTypography.CAPTION_EM, scalePercent)
-                            .copy(fontWeight = FontWeight.Bold),
-                        modifier = Modifier
-                            .widthIn(min = cellMin)
-                            .padding(end = 0.6f.gridUnitsAsDp(), bottom = 0.2f.gridUnitsAsDp()),
-                    )
-                }
-            }
-        }
-        block.rows.forEach { row ->
-            Row {
-                row.forEach { cell ->
-                    Text(
-                        text = cell,
-                        style = bodyStyle(ArticleTypography.CAPTION_EM, scalePercent),
-                        modifier = Modifier
-                            .widthIn(min = cellMin)
-                            .padding(end = 0.6f.gridUnitsAsDp(), bottom = 0.15f.gridUnitsAsDp()),
-                    )
-                }
-            }
+        val style = bodyStyle(ArticleTypography.CAPTION_EM, scalePercent)
+            .let { if (header) it.copy(fontWeight = FontWeight.Bold) else it }
+        cells.forEach { cell ->
+            Text(
+                text = cell,
+                style = style,
+                modifier = Modifier
+                    .widthIn(min = cellMin)
+                    .padding(
+                        end = 0.6f.gridUnitsAsDp(),
+                        bottom = if (header) 0.2f.gridUnitsAsDp() else 0.15f.gridUnitsAsDp(),
+                    ),
+            )
         }
     }
 }

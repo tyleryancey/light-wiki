@@ -14,9 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.viewModelScope
 import com.thelightphone.sdk.LightScreen
-import com.thelightphone.sdk.LightViewModel
 import com.thelightphone.sdk.SealedLightActivity
 import com.thelightphone.sdk.ui.LightBarButton
 import com.thelightphone.sdk.ui.LightIcons
@@ -30,36 +28,15 @@ import com.thelightphone.sdk.ui.LightTopBarCenter
 import com.thelightphone.sdk.ui.gridUnitsAsDp
 import com.thelightphone.sdk.ui.lightClickable
 import dev.tyler.wiki.pipeline.DisambiguationSection
-import dev.tyler.wiki.pipeline.friendlyErrorMessage
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.launch
 
-class DisambiguationViewModel(private val title: String) : LightViewModel<Unit>() {
-
-    sealed interface Mode {
-        data object Loading : Mode
-        data class Sections(val sections: List<DisambiguationSection>) : Mode
-        data class Error(val message: String) : Mode
-    }
-
-    val mode = MutableStateFlow<Mode>(Mode.Loading)
-
-    private val repository = WikiGraph.repository
+class DisambiguationViewModel(private val title: String) : LoadableViewModel<List<DisambiguationSection>>() {
 
     init {
         load()
     }
 
-    fun load() {
-        mode.value = Mode.Loading
-        viewModelScope.launch {
-            mode.value = try {
-                Mode.Sections(repository.disambigSections(title))
-            } catch (e: Exception) {
-                Mode.Error(friendlyErrorMessage(e))
-            }
-        }
-    }
+    override suspend fun fetch(): List<DisambiguationSection> =
+        WikiGraph.repository.disambigSections(title)
 }
 
 /** The chooser — the app's only navigation surface. Bounded by the page's own entries. */
@@ -94,12 +71,12 @@ class DisambiguationScreen(
                     modifier = Modifier.padding(bottom = 1f.gridUnitsAsDp()),
                 )
                 when (val m = mode) {
-                    is DisambiguationViewModel.Mode.Loading -> StatusLine("Loading…")
+                    is LoadableViewModel.Mode.Loading -> StatusLine("Loading…")
 
-                    is DisambiguationViewModel.Mode.Error ->
+                    is LoadableViewModel.Mode.Error ->
                         ErrorRetry(m.message) { viewModel.load() }
 
-                    is DisambiguationViewModel.Mode.Sections -> {
+                    is LoadableViewModel.Mode.Loaded -> {
                         // One navigation per visit. LightClickable is a bare Modifier.clickable
                         // with no debounce and Compose dispatches separate pointers to separate
                         // clickable nodes, so two fingers landing in the same frame would both
@@ -109,7 +86,7 @@ class DisambiguationScreen(
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                         ) {
-                            m.sections.forEach { section ->
+                            m.value.forEach { section ->
                                 section.heading?.let { heading ->
                                     item {
                                         LightText(

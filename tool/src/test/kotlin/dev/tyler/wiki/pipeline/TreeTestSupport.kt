@@ -41,4 +41,27 @@ object TreeTestSupport {
 
     fun elementsNamed(root: HtmlNode, name: String): List<HtmlNode.Element> =
         allElements(root).filter { it.name == name }
+
+    /** A test-resource fixture as text; fails loudly when missing. */
+    fun fixture(path: String): String =
+        checkNotNull(javaClass.getResourceAsStream(path)) { "fixture missing: $path" }
+            .bufferedReader().readText()
+
+    /** Every harvested article fixture, by slug (see fixtures/README.md). */
+    val ARTICLE_FIXTURES = listOf(
+        "caffeine",
+        "fourier-transform",
+        "gettysburg-address",
+        "great-wave-kanagawa",
+        "list-countries-population-un",
+        "list-presidents-us",
+        "marie-curie",
+        "mary-anning",
+        "mercury-disambiguation",
+        "mercury-element",
+        "outline-of-chemistry",
+        "vestmanna",
+    )
+
+    fun articleFixture(slug: String): String = fixture("/fixtures/articles/$slug.html")
 }
